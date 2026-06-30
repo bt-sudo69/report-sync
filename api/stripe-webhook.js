@@ -6,7 +6,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 });
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
   // Handle the event
   switch (event.type) {
-    case 'checkout.session.completed':
+    case 'checkout.session.completed': {
       const session = event.data.object;
       const { userId } = session.metadata;
       const stripeCustomerId = session.customer;
@@ -51,8 +51,9 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Database update failed' });
       }
       break;
+    }
 
-    case 'customer.subscription.updated':
+    case 'customer.subscription.updated': {
       const subscription = event.data.object;
       const customerId = subscription.customer;
       // We need to find the user by stripe_customer_id
@@ -91,8 +92,9 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Database update failed' });
       }
       break;
+    }
 
-    case 'customer.subscription.deleted':
+    case 'customer.subscription.deleted': {
       const deletedSubscription = event.data.object;
       const deletedCustomerId = deletedSubscription.customer;
       const { data: deletedProfiles, error: deletedSelectError } = await supabase
@@ -119,6 +121,7 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Database update failed' });
       }
       break;
+    }
 
     default:
       console.log(`Unhandled event type ${event.type}`);

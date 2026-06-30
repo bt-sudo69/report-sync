@@ -16,10 +16,12 @@ try {
 let _supabase = null
 function getSupabase() {
   if (_supabase) return _supabase
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('Missing Supabase env vars (VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
-  _supabase = createClient(url, key)
+  if (!url || !key) throw new Error('Missing Supabase env vars (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
+  _supabase = createClient(url, key, {
+    auth: { persistSession: false },
+  })
   return _supabase
 }
 
@@ -214,11 +216,13 @@ export default async function handler(req, res) {
       .download(filePath)
 
     if (dlError || !fileData) {
+      const errMsg = dlError?.message || 'Unknown storage error'
+      console.error('[process-report] Download failed:', dlError, 'for path:', filePath)
       await getSupabase().from('reports').update({
         status: 'error',
-        extracted_data: { error: `Download failed: ${dlError?.message}` },
+        extracted_data: { error: `Download failed: ${errMsg}` },
       }).eq('id', reportId)
-      return res.status(500).json({ error: `Could not download file: ${dlError?.message}` })
+      return res.status(500).json({ error: `Could not download file: ${errMsg}` })
     }
 
     const buffer = Buffer.from(await fileData.arrayBuffer())
