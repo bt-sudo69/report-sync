@@ -1,10 +1,182 @@
+import { createRequire } from 'module'
 import { createClient } from '@supabase/supabase-js'
 
+const require = createRequire(import.meta.url)
+const pdfParse = require('pdf-parse')
+const xlsx = require('xlsx')
+
+/* ───── Supabase service client ───── */
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
+/* ───── OpenRouter config ───── */
+const OPENROUTER_API_KEY =process.env["OPENROUTER_API_KEY"] || ""
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+const MODEL_FAST = 'deepseek/deepseek-v4-flash'
+const MODEL_PRO  = 'deepseek/deepseek-v4-pro'
+
+/* ───── helpers ───── */
+async function callDeepSeek(model, systemPrompt, userPrompt, maxTokens = 4000) {
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: model === MODEL_PRO ? 0.7 : 0.2,
+      max_tokens: maxTokens,
+    }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`DeepSeek API error ${res.status}: ${text}`)
+  }
+
+  const data = await res.json()
+  return data.choices[0].message.content
+}
+
+function truncateText(text, maxChars = 80_000) {
+  if (text.length <= maxChars) return text
+  return text.slice(0, maxChars) + '\n\n... (text truncated due to length)'
+}
+
+/* ───── document parsers ───── */
+async function parseFile(fileBuffer, fileName) {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+
+  /* ── PDF ── */
+  if (ext === 'pdf') {
+    const parsed = await pdfParse(fileBuffer)
+    return truncateText(parsed.text)
+  }
+
+  /* ── XLSX / XLS / CSV ── */
+  if (['xlsx', 'xls', 'csv'].includes(ext)) {
+    const workbook = xlsx.read(fileBuffer, { type: 'buffer' })
+    const sheetName = workbook.SheetNames[0]
+    const sheet = workbook.Sheets[sheetName]
+    const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+    const text = rows
+      .filter((row) => row.some((cell) => String(cell).trim()))
+      .map((row) => row.map((cell) => String(cell).trim()).join('\t'))
+      .join('\n')
+    return truncateText(text)
+  }
+
+  /* ── DOCX ── */
+  if (['docx', 'doc'].includes(ext)) {
+    const mammoth = await import('mammoth')
+    const result = await mammoth.extractRawText({ buffer: fileBuffer })
+    return truncateText(result.value)
+  }
+
+  /* ── PPTX ── basic text extraction from slide XML ── */
+  if (['pptx', 'ppt'].includes(ext)) {
+    const { default: JSZip } = await import('jszip')
+    const zip = await JSZip.loadAsync(fileBuffer)
+    const slideFiles = Object.keys(zip.files)
+      .filter((name) => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'))
+      .sort()
+
+    const texts = []
+    for (const slideFile of slideFiles) {
+      const xml = await zip.files[slideFile].async('text')
+      const matches = xml.match(/<a:t[^>]*>([^<]*)<\/a:t>/g)
+      if (matches) {
+        const slideText = matches
+          .map((m) => m.replace(/<[^>]+>/g, ''))
+          .filter(Boolean)
+          .join(' ')
+        if (slideText.trim()) {
+          texts.push(`[Slide ${texts.length + 1}]: ${slideText}`)
+        }
+      }
+    }
+    return truncateText(texts.join('\n\n'))
+  }
+
+  /* ── fallback: treat as plain text ── */
+  return truncateText(fileBuffer.toString('utf-8'))
+}
+
+/* ───── STEP B extraction prompt ───── */
+function extractionPrompt(text) {
+  return `Analyse this document and return a JSON object with this exact structure:
+
+{
+  "document_type": "financial|sales|operations|hr|project|general",
+  "title": "a concise executive report title",
+  "kpis": [
+    { "label": "Revenue", "value": "£1.2M", "unit": "GBP", "change_pct": 12.5, "trend": "up" }
+  ],
+  "charts": [
+    {
+      "type": "line|bar|doughnut|area",
+      "title": "Quarterly Revenue",
+      "x_label": "Quarter",
+      "y_label": "Revenue (£)",
+      "data": {
+        "labels": ["Q1","Q2","Q3","Q4"],
+        "datasets": [{ "label": "Revenue", "data": [100,120,115,140] }]
+      }
+    }
+  ],
+  "key_findings": [
+    "Revenue grew 12.5% quarter-over-quarter driven by new product launches.",
+    "Customer acquisition cost decreased by 15% compared to the previous period."
+  ],
+  "time_period": "Q3 2024"
+}
+
+Rules:
+1. Return ONLY valid JSON — no markdown fences, no explanation.
+2. Extract 4-6 KPIs with real values found in the document.
+3. Generate 3-5 chart configurations based on the data.
+4. List 5-8 key findings as single-sentence bullet points.
+5. If the document has no numeric data, return fewer KPIs/charts — that's fine.
+
+Document content:
+${text}`
+}
+
+/* ───── STEP C narrative prompt ───── */
+function narrativePrompt(documentType, title, kpis, keyFindings) {
+  const kpiLines = kpis
+    .map((k) => `- ${k.label}: ${k.value}${k.unit ? ' ' + k.unit : ''}${k.change_pct ? ` (${k.change_pct > 0 ? '+' : ''}${k.change_pct}%)` : ''} trend: ${k.trend}`)
+    .join('\n')
+
+  const findingLines = keyFindings.map((f) => `- ${f}`).join('\n')
+
+  return `Based on these findings from a ${documentType} report titled "${title}":
+
+KEY METRICS:
+${kpiLines}
+
+KEY FINDINGS:
+${findingLines}
+
+Write a 4-paragraph executive summary:
+
+Paragraph 1: What this report covers and the overall performance picture (2-3 sentences).
+Paragraph 2: The most important positive finding and what is driving it (2-3 sentences).
+Paragraph 3: The most important risk, concern, or underperformance area (2-3 sentences).
+Paragraph 4: 2-3 specific, actionable recommendations based on the data (3-4 sentences).
+
+Write in second person perspective. Maximum 250 words total.`
+}
+
+/* ───── main handler ───── */
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -17,149 +189,118 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing reportId or filePath' })
   }
 
-  try {
-    // Simulate a brief processing delay
-    await new Promise((r) => setTimeout(r, 3000))
+  if (!OPENROUTER_API_KEY) {
+    return res.status(500).json({ error: 'Server not configured — missing OpenRouter API key' })
+  }
 
-    // Read the uploaded file from storage
-    const { data: fileData, error: downloadError } = await supabase.storage
+  try {
+    /* ── STEP A: Download & Parse ── */
+    console.log(`[process-report] Downloading ${filePath}`)
+
+    const { data: fileData, error: dlError } = await supabase.storage
       .from('documents')
       .download(filePath)
 
-    if (downloadError) {
-      // Mark as error
-      await supabase
-        .from('reports')
-        .update({
-          status: 'error',
-          extracted_data: { error: `Could not read file: ${downloadError.message}` },
-        })
-        .eq('id', reportId)
-      return res.status(500).json({ error: downloadError.message })
+    if (dlError || !fileData) {
+      await supabase.from('reports').update({
+        status: 'error',
+        extracted_data: { error: `Download failed: ${dlError?.message}` },
+      }).eq('id', reportId)
+      return res.status(500).json({ error: `Could not download file: ${dlError?.message}` })
     }
 
-    // Extract a sample of the text content for basic analysis
-    const text = await fileData.text()
-    const sample = text.slice(0, 2000)
+    const buffer = Buffer.from(await fileData.arrayBuffer())
+    const fileName = filePath.split('/').pop() || 'document'
+    const extractedText = await parseFile(buffer, fileName)
 
-    // Simple heuristic analysis for demo purposes
-    const lines = sample.split('\n').filter(Boolean)
-    const hasNumbers = /[\d.,%$€£]+/.test(sample)
-    const hasDates = /\d{1,4}[-/]\d{1,2}[-/]\d{1,4}/.test(sample)
-    const rowCount = lines.length
-    const colCount = lines[0]?.split(/[,\t|;]/).length || 0
-
-    // Determine report type from content
-    let reportType = 'general'
-    const lower = sample.toLowerCase()
-    if (/(revenue|profit|loss|income|balance|cash\s*flow|financial|p&l)/.test(lower)) {
-      reportType = 'financial'
-    } else if (/(sales|lead|customer|conversion|pipeline|deal)/.test(lower)) {
-      reportType = 'sales'
-    } else if (/(campaign|traffic|click|impression|ctr|roi|marketing)/.test(lower)) {
-      reportType = 'marketing'
-    } else if (/(employee|staff|hr|recruit|attrition|headcount)/.test(lower)) {
-      reportType = 'hr'
-    } else if (/(project|task|sprint|milestone|deadline)/.test(lower)) {
-      reportType = 'project'
+    if (!extractedText || extractedText.trim().length < 50) {
+      await supabase.from('reports').update({
+        status: 'error',
+        extracted_data: { error: 'Document contains too little readable text to analyse.' },
+      }).eq('id', reportId)
+      return res.status(400).json({ error: 'Document too short or unreadable' })
     }
 
-    // Generate sample KPIs from the data
-    const kpis = []
-    if (hasNumbers) {
-      // Find numeric values in the sample
-      const numbers = sample.match(/[\d,.]+/g)
-        ?.map((n) => parseFloat(n.replace(/,/g, '')))
-        .filter((n) => !isNaN(n) && n > 0) || []
+    /* ── STEP B: Fast extraction with DeepSeek V4 Flash ── */
+    console.log(`[process-report] Extracting with ${MODEL_FAST}`)
 
-      if (numbers.length > 0) {
-        const total = numbers.reduce((a, b) => a + b, 0)
-        const avg = total / numbers.length
+    const sysExtract = 'You are a data extraction specialist. Extract structured information from business documents and return ONLY valid JSON. No markdown fences, no explanation, just raw JSON.'
 
-        kpis.push(
-          { label: 'Total Value', value: total.toLocaleString(), change: '+12.5%' },
-          { label: 'Average', value: avg.toLocaleString(), change: '+3.2%' },
-          { label: 'Data Points', value: numbers.length.toString(), change: `+${Math.floor(numbers.length * 0.1)}` },
-          { label: 'Rows', value: rowCount.toString(), change: `+${Math.floor(rowCount * 0.05)}` }
-        )
-      }
+    let extraction
+    try {
+      const raw = await callDeepSeek(MODEL_FAST, sysExtract, extractionPrompt(extractedText), 4000)
+      const cleaned = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+      extraction = JSON.parse(cleaned)
+    } catch (e) {
+      console.error('[process-report] Extraction parse failed:', e.message)
+      await supabase.from('reports').update({
+        status: 'error',
+        extracted_data: { error: `AI extraction failed: ${e.message}` },
+      }).eq('id', reportId)
+      return res.status(500).json({ error: `Extraction failed: ${e.message}` })
     }
 
-    if (kpis.length === 0) {
-      kpis.push(
-        { label: 'Rows', value: rowCount.toString(), change: '+0%' },
-        { label: 'Columns', value: colCount.toString(), change: '+0%' },
-        { label: 'Words', value: sample.split(/\s+/).length.toString(), change: '+0%' },
-        { label: 'Lines', value: lines.length.toString(), change: '+0%' }
+    extraction.document_type = extraction.document_type || 'general'
+    extraction.title = extraction.title || fileName.replace(/\.[^/.]+$/, '')
+    extraction.kpis = Array.isArray(extraction.kpis) ? extraction.kpis : []
+    extraction.charts = Array.isArray(extraction.charts) ? extraction.charts : []
+    extraction.key_findings = Array.isArray(extraction.key_findings) ? extraction.key_findings : []
+    extraction.time_period = extraction.time_period || new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+    /* ── STEP C: Quality narrative with DeepSeek V4 Pro ── */
+    console.log(`[process-report] Generating narrative with ${MODEL_PRO}`)
+
+    const sysNarrative = 'You are a senior business analyst writing executive briefings for C-suite readers. Write clearly, confidently, and concisely. Never use jargon. Always ground every statement in the data provided.'
+
+    let executiveSummary
+    try {
+      executiveSummary = await callDeepSeek(
+        MODEL_PRO,
+        sysNarrative,
+        narrativePrompt(extraction.document_type, extraction.title, extraction.kpis, extraction.key_findings),
+        600
       )
+    } catch (e) {
+      console.error('[process-report] Narrative failed, using extraction findings:', e.message)
+      executiveSummary = extraction.key_findings?.join('\n\n') || 'Report generated successfully.'
     }
 
-    // Generate sample chart configs
-    const charts = [
-      {
-        type: 'bar',
-        title: reportType === 'financial' ? 'Revenue Overview' : 'Data Distribution',
-        data: [{ name: 'Current', value: kpis[0]?.value ? parseInt(kpis[0].value.replace(/,/g, '')) : 100 }],
-      },
-      {
-        type: 'line',
-        title: 'Trend Analysis',
-        data: [
-          { name: 'Q1', value: 120 },
-          { name: 'Q2', value: 145 },
-          { name: 'Q3', value: 132 },
-          { name: 'Q4', value: 168 },
-        ],
-      },
-    ]
+    /* ── STEP D: Save to Supabase ── */
+    console.log('[process-report] Saving to database')
 
-    // Generate executive summary
-    const executiveSummary = `This report analyzes ${reportType} data from ${filePath?.split('/').pop() || 'your uploaded document'}. ` +
-      `The dataset contains ${rowCount} rows and ${colCount} columns. ` +
-      (kpis.length > 0
-        ? `Key metrics include ${kpis.map((k) => k.label).join(', ')}. ` +
-          `The total value across all data points is ${kpis[0]?.value || 'N/A'}.`
-        : 'Basic analysis was performed on the provided data.') +
-      (hasDates ? ' Date-based trends were identified in the data, enabling period-over-period comparisons.' : '') +
-      (hasNumbers ? ' Numerical analysis was performed on the dataset to extract meaningful insights.' : '')
-
-    // Generate a share token
-    const shareToken = Math.random().toString(36).substring(2, 10) +
-      Math.random().toString(36).substring(2, 8)
-
-    // Update the reports record with all the processed data
     const { error: updateError } = await supabase
       .from('reports')
       .update({
         status: 'complete',
-        document_type: reportType,
+        title: extraction.title,
+        document_type: extraction.document_type,
+        kpis: extraction.kpis,
+        charts: extraction.charts,
         extracted_data: {
-          text_sample: sample,
-          row_count: rowCount,
-          col_count: colCount,
-          has_numbers: hasNumbers,
-          has_dates: hasDates,
+          key_findings: extraction.key_findings,
+          time_period: extraction.time_period,
+          text_sample: extractedText.slice(0, 500),
         },
-        kpis,
-        charts,
         executive_summary: executiveSummary,
-        share_token: shareToken,
+        updated_at: new Date().toISOString(),
       })
       .eq('id', reportId)
 
     if (updateError) {
-      return res.status(500).json({ error: updateError.message })
+      return res.status(500).json({ error: `Database update failed: ${updateError.message}` })
     }
 
     res.status(200).json({
       success: true,
       reportId,
-      reportType,
-      kpiCount: kpis.length,
+      document_type: extraction.document_type,
+      title: extraction.title,
+      kpi_count: extraction.kpis.length,
+      chart_count: extraction.charts.length,
+      has_summary: !!executiveSummary,
     })
   } catch (err) {
-    console.error('Processing error:', err)
-    // Mark as error in the database
+    console.error('[process-report] Unexpected error:', err)
     await supabase
       .from('reports')
       .update({
