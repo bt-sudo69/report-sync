@@ -25,3 +25,5 @@ dist-ssr
 .env
 .hermes/
 .env
+.vercel
+.env*
