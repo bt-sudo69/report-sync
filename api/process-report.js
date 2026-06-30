@@ -8,8 +8,6 @@ try {
   xlsx = require('xlsx')
 } catch (e) {
   console.error('pdf/xlsx require failed:', e.message)
-  pdfParse = null
-  xlsx = null
 }
 
 /* ───── Supabase service client (lazy to avoid startup crash) ───── */
@@ -26,18 +24,18 @@ function getSupabase() {
 }
 
 /* ───── OpenRouter config ───── */
-const OPENROUTER_API_KEY =process.env["OPENROUTER_API_KEY"] || ""
+const token = process.env.OPENROUTER_API_KEY || ''
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 const MODEL_FAST = 'deepseek/deepseek-v4-flash'
-const MODEL_PRO  = 'deepseek/deepseek-v4-pro'
+const MODEL_PRO = 'deepseek/deepseek-v4-pro'
 
 /* ───── helpers ───── */
 async function callDeepSeek(model, systemPrompt, userPrompt, maxTokens = 4000) {
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      Authorization: 'Bearer' + ' ' + token,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -57,7 +55,7 @@ async function callDeepSeek(model, systemPrompt, userPrompt, maxTokens = 4000) {
   }
 
   const data = await res.json()
-  return data.choices[0].message.content
+  return data.choices?.[0]?.message?.content || ''
 }
 
 function truncateText(text, maxChars = 80_000) {
@@ -69,14 +67,14 @@ function truncateText(text, maxChars = 80_000) {
 async function parseFile(fileBuffer, fileName) {
   const ext = fileName.split('.').pop()?.toLowerCase()
 
-  /* ── PDF ── */
   if (ext === 'pdf') {
+    if (!pdfParse) throw new Error('pdf-parse module not available')
     const parsed = await pdfParse(fileBuffer)
     return truncateText(parsed.text)
   }
 
-  /* ── XLSX / XLS / CSV ── */
   if (['xlsx', 'xls', 'csv'].includes(ext)) {
+    if (!xlsx) throw new Error('xlsx module not available')
     const workbook = xlsx.read(fileBuffer, { type: 'buffer' })
     const sheetName = workbook.SheetNames[0]
     const sheet = workbook.Sheets[sheetName]
@@ -88,14 +86,12 @@ async function parseFile(fileBuffer, fileName) {
     return truncateText(text)
   }
 
-  /* ── DOCX ── */
   if (['docx', 'doc'].includes(ext)) {
     const mammoth = await import('mammoth')
     const result = await mammoth.extractRawText({ buffer: fileBuffer })
     return truncateText(result.value)
   }
 
-  /* ── PPTX ── basic text extraction from slide XML ── */
   if (['pptx', 'ppt'].includes(ext)) {
     const { default: JSZip } = await import('jszip')
     const zip = await JSZip.loadAsync(fileBuffer)
@@ -120,11 +116,10 @@ async function parseFile(fileBuffer, fileName) {
     return truncateText(texts.join('\n\n'))
   }
 
-  /* ── fallback: treat as plain text ── */
   return truncateText(fileBuffer.toString('utf-8'))
 }
 
-/* ───── STEP B extraction prompt ───── */
+/* ───── extraction prompt ───── */
 function extractionPrompt(text) {
   return `Analyse this document and return a JSON object with this exact structure:
 
@@ -164,7 +159,7 @@ Document content:
 ${text}`
 }
 
-/* ───── STEP C narrative prompt ───── */
+/* ───── narrative prompt ───── */
 function narrativePrompt(documentType, title, kpis, keyFindings) {
   const kpiLines = kpis
     .map((k) => `- ${k.label}: ${k.value}${k.unit ? ' ' + k.unit : ''}${k.change_pct ? ` (${k.change_pct > 0 ? '+' : ''}${k.change_pct}%)` : ''} trend: ${k.trend}`)
@@ -190,39 +185,25 @@ Paragraph 4: 2-3 specific, actionable recommendations based on the data (3-4 sen
 Write in second person perspective. Maximum 250 words total.`
 }
 
-/* ───── main handler ───── */
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST')
-    return res.status(405).end('Method Not Allowed')
-  }
-
-  const { reportId, filePath } = req.body
-
-  if (!reportId || !filePath) {
-    return res.status(400).json({ error: 'Missing reportId or filePath' })
-  }
-
-  if (!OPENROUTER_API_KEY) {
-    return res.status(500).json({ error: 'Server not configured — missing OpenRouter API key' })
-  }
+/* ───── background processing ───── */
+async function processInBackground(reportId, filePath) {
+  const supabase = getSupabase()
 
   try {
-    /* ── STEP A: Download & Parse ── */
+    // STEP A: Download & Parse
     console.log(`[process-report] Downloading ${filePath}`)
-
-    const { data: fileData, error: dlError } = await getSupabase().storage
+    const { data: fileData, error: dlError } = await supabase.storage
       .from('documents')
       .download(filePath)
 
     if (dlError || !fileData) {
       const errMsg = dlError?.message || 'Unknown storage error'
       console.error('[process-report] Download failed:', dlError, 'for path:', filePath)
-      await getSupabase().from('reports').update({
+      await supabase.from('reports').update({
         status: 'error',
         extracted_data: { error: `Download failed: ${errMsg}` },
       }).eq('id', reportId)
-      return res.status(500).json({ error: `Could not download file: ${errMsg}` })
+      return
     }
 
     const buffer = Buffer.from(await fileData.arrayBuffer())
@@ -230,16 +211,15 @@ export default async function handler(req, res) {
     const extractedText = await parseFile(buffer, fileName)
 
     if (!extractedText || extractedText.trim().length < 50) {
-      await getSupabase().from('reports').update({
+      await supabase.from('reports').update({
         status: 'error',
         extracted_data: { error: 'Document contains too little readable text to analyse.' },
       }).eq('id', reportId)
-      return res.status(400).json({ error: 'Document too short or unreadable' })
+      return
     }
 
-    /* ── STEP B: Fast extraction with DeepSeek V4 Flash ── */
+    // STEP B: Fast extraction with DeepSeek V4 Flash
     console.log(`[process-report] Extracting with ${MODEL_FAST}`)
-
     const sysExtract = 'You are a data extraction specialist. Extract structured information from business documents and return ONLY valid JSON. No markdown fences, no explanation, just raw JSON.'
 
     let extraction
@@ -249,11 +229,11 @@ export default async function handler(req, res) {
       extraction = JSON.parse(cleaned)
     } catch (e) {
       console.error('[process-report] Extraction parse failed:', e.message)
-      await getSupabase().from('reports').update({
+      await supabase.from('reports').update({
         status: 'error',
         extracted_data: { error: `AI extraction failed: ${e.message}` },
       }).eq('id', reportId)
-      return res.status(500).json({ error: `Extraction failed: ${e.message}` })
+      return
     }
 
     extraction.document_type = extraction.document_type || 'general'
@@ -263,9 +243,8 @@ export default async function handler(req, res) {
     extraction.key_findings = Array.isArray(extraction.key_findings) ? extraction.key_findings : []
     extraction.time_period = extraction.time_period || new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-    /* ── STEP C: Quality narrative with DeepSeek V4 Pro ── */
+    // STEP C: Quality narrative with DeepSeek V4 Pro
     console.log(`[process-report] Generating narrative with ${MODEL_PRO}`)
-
     const sysNarrative = 'You are a senior business analyst writing executive briefings for C-suite readers. Write clearly, confidently, and concisely. Never use jargon. Always ground every statement in the data provided.'
 
     let executiveSummary
@@ -281,10 +260,9 @@ export default async function handler(req, res) {
       executiveSummary = extraction.key_findings?.join('\n\n') || 'Report generated successfully.'
     }
 
-    /* ── STEP D: Save to Supabase ── */
+    // STEP D: Save to Supabase
     console.log('[process-report] Saving to database')
-
-    const { error: updateError } = await getSupabase()
+    const { error: updateError } = await supabase
       .from('reports')
       .update({
         status: 'complete',
@@ -303,21 +281,13 @@ export default async function handler(req, res) {
       .eq('id', reportId)
 
     if (updateError) {
-      return res.status(500).json({ error: `Database update failed: ${updateError.message}` })
+      console.error('[process-report] DB update failed:', updateError.message)
+    } else {
+      console.log('[process-report] Report complete:', reportId)
     }
-
-    res.status(200).json({
-      success: true,
-      reportId,
-      document_type: extraction.document_type,
-      title: extraction.title,
-      kpi_count: extraction.kpis.length,
-      chart_count: extraction.charts.length,
-      has_summary: !!executiveSummary,
-    })
   } catch (err) {
     console.error('[process-report] Unexpected error:', err)
-    await getSupabase()
+    await supabase
       .from('reports')
       .update({
         status: 'error',
@@ -325,7 +295,46 @@ export default async function handler(req, res) {
       })
       .eq('id', reportId)
       .catch(() => {})
+  }
+}
 
+/* ───── main handler (async — returns immediately, processes in background) ───── */
+export default async function handler(req, res) {
+  // Only POST
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    return res.status(405).end('Method Not Allowed')
+  }
+
+  const { reportId, filePath } = req.body
+
+  if (!reportId || !filePath) {
+    return res.status(400).json({ error: 'Missing reportId or filePath' })
+  }
+
+  if (!token) {
+    return res.status(500).json({ error: 'Server not configured — missing OpenRouter API key' })
+  }
+
+  try {
+    // Mark as processing
+    const supabase = getSupabase()
+    await supabase
+      .from('reports')
+      .update({ status: 'processing' })
+      .eq('id', reportId)
+
+    // Fire background processing (don't await — let it run after response)
+    processInBackground(reportId, filePath)
+
+    // Return immediately — frontend will poll for completion
+    res.status(202).json({
+      success: true,
+      reportId,
+      message: 'Processing started',
+    })
+  } catch (err) {
+    console.error('[process-report] Handler error:', err)
     res.status(500).json({ error: err.message })
   }
 }
