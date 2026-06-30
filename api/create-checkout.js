@@ -6,7 +6,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Initialize Supabase client with service role key (for backend operations)
 const supabase = createClient(
-  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
