@@ -280,7 +280,7 @@ export default async function handler(req, res) {
     /* ── STEP D: Save to Supabase ── */
     console.log('[process-report] Saving to database')
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await getSupabase()
       .from('reports')
       .update({
         status: 'complete',
@@ -313,7 +313,7 @@ export default async function handler(req, res) {
     })
   } catch (err) {
     console.error('[process-report] Unexpected error:', err)
-    await supabase
+    await getSupabase()
       .from('reports')
       .update({
         status: 'error',
