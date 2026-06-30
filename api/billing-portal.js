@@ -15,11 +15,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers.host || 'report-sync.vercel.app';
+
     // Create a billing portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
       // Redirect URL after the user finishes managing their subscription
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:5173'}/dashboard`,
+      return_url: `${protocol}://${host}/dashboard`,
     });
 
     res.status(200).json({ url: session.url });
