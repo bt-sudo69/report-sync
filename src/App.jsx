@@ -2,13 +2,14 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './context/AuthContext'
 import Navbar from './components/Navbar'
+import ProtectedRoute from './components/ProtectedRoute'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
+import Pricing from './pages/Pricing'
 import Dashboard from './pages/Dashboard'
 import Report from './pages/Report'
 import SharedReport from './pages/SharedReport'
-import Pricing from './pages/Pricing'
 
 export default function App() {
   return (
@@ -27,7 +28,7 @@ export default function App() {
           }}
         />
         <Routes>
-          {/* Public routes with navbar */}
+          {/* Public routes — with top navbar */}
           <Route
             path="/"
             element={
@@ -65,7 +66,7 @@ export default function App() {
             }
           />
           <Route
-            path="/share/:id"
+            path="/shared/:token"
             element={
               <>
                 <Navbar />
@@ -74,17 +75,21 @@ export default function App() {
             }
           />
 
-          {/* Dashboard — has its own sidebar, no top navbar */}
-          <Route path="/dashboard/*" element={<Dashboard />} />
-
-          {/* Individual report view */}
+          {/* Protected routes — requires auth */}
+          <Route
+            path="/dashboard/*"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/report/:id"
             element={
-              <>
-                <Navbar />
+              <ProtectedRoute>
                 <Report />
-              </>
+              </ProtectedRoute>
             }
           />
         </Routes>

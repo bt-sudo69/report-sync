@@ -1,143 +1,107 @@
-import { Routes, Route } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Upload, FileText, Plus } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import Sidebar from '../components/Sidebar'
-import UploadZone from '../components/UploadZone'
-import ReportViewer from '../components/ReportViewer'
-import AIBot from '../components/AIBot'
-import {
-  BarChart3,
-  Upload,
-  FileText,
-  Users,
-  TrendingUp,
-  DollarSign,
-  Activity,
-  Settings,
-} from 'lucide-react'
-import { useState } from 'react'
-import toast from 'react-hot-toast'
-
-function DashboardHome() {
-  const stats = [
-    { label: 'Total Reports', value: '12', icon: FileText, change: '+2' },
-    { label: 'Data Imports', value: '48', icon: Upload, change: '+5' },
-    { label: 'Active Users', value: '6', icon: Users, change: '+1' },
-    { label: 'Avg Response', value: '1.2s', icon: Activity, change: '-0.3s' },
-  ]
-
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
-          <div
-            key={s.label}
-            className="bg-white rounded-xl p-5 shadow-sm border border-gray-200"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <s.icon className="h-5 w-5 text-gray-400" />
-              <span
-                className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  s.change.startsWith('+')
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-blue-100 text-blue-700'
-                }`}
-              >
-                {s.change}
-              </span>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{s.value}</p>
-            <p className="text-sm text-gray-500">{s.label}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <h2 className="font-semibold text-gray-900 mb-4">Recent Reports</h2>
-          <div className="text-center py-12 text-gray-400">
-            <BarChart3 className="h-10 w-10 mx-auto mb-2" />
-            <p className="text-sm">Upload your first data file to generate a report.</p>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <h2 className="font-semibold text-gray-900 mb-4">Quick Upload</h2>
-          <UploadZone onFile={() => toast.success('File ready for processing')} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function UploadPage() {
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Upload Data</h1>
-      <UploadZone onFile={() => toast.success('File uploaded')} />
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h2 className="font-semibold text-gray-900 mb-3">Recent Imports</h2>
-        <p className="text-gray-400 text-sm text-center py-8">
-          No imports yet. Drag & drop a file above to get started.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function ReportsPage() {
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-      <ReportViewer report={null} />
-    </div>
-  )
-}
-
-function SettingsPage() {
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Company Name
-          </label>
-          <input
-            type="text"
-            className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Your Company Ltd"
-            aria-label="Company name"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Default Currency
-          </label>
-          <select
-            className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Default currency"
-          >
-            <option>GBP (£)</option>
-            <option>USD ($)</option>
-            <option>EUR (€)</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  )
-}
+import ReportCard from '../components/ReportCard'
 
 export default function Dashboard() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [reports, setReports] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!user) return
+    const fetchReports = async () => {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (!error && data) {
+        setReports(data)
+      }
+      setLoading(false)
+    }
+    fetchReports()
+  }, [user])
+
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-[#F8F7F3]">
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
-        <Routes>
-          <Route index element={<DashboardHome />} />
-          <Route path="upload" element={<UploadPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Routes>
+
+      <main className="flex-1 overflow-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-[#F8F7F3] z-10 px-8 pt-8 pb-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-[#0D0D0D]">Your Reports</h1>
+            <button
+              onClick={() => navigate('/dashboard/new')}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
+            >
+              <Plus className="h-4 w-4" />
+              New Report
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-8">
+          {loading ? (
+            /* Loading skeleton */
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3].map((n) => (
+                <div
+                  key={n}
+                  className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-lg bg-gray-200" />
+                    <div className="flex-1">
+                      <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+                      <div className="h-3 bg-gray-100 rounded w-1/2" />
+                    </div>
+                  </div>
+                  <div className="h-3 bg-gray-100 rounded w-1/3 mb-4" />
+                  <div className="flex gap-2">
+                    <div className="h-7 bg-gray-100 rounded w-20" />
+                    <div className="h-7 bg-gray-100 rounded w-16" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : reports.length === 0 ? (
+            /* Empty state */
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center mb-6">
+                <Upload className="h-10 w-10 text-blue-600" />
+              </div>
+              <h2 className="text-xl font-bold text-[#0D0D0D] mb-2">
+                Upload your first document
+              </h2>
+              <p className="text-gray-500 text-sm mb-8 max-w-sm">
+                Get an executive report in under 2 minutes. Upload a CSV, Excel, or PDF file and let ReportSync do the rest.
+              </p>
+              <button
+                onClick={() => navigate('/dashboard/new')}
+                className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              >
+                <Upload className="h-5 w-5" />
+                Upload Document
+              </button>
+            </div>
+          ) : (
+            /* Report grid */
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {reports.map((report) => (
+                <ReportCard key={report.id} report={report} />
+              ))}
+            </div>
+          )}
+        </div>
       </main>
     </div>
   )
