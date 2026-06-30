@@ -25,6 +25,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Determine the base URL from the request
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers.host || 'report-sync.vercel.app';
+
     // Create a Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -35,8 +39,8 @@ export default async function handler(req, res) {
         },
       ],
       mode: 'subscription',
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:5173'}/dashboard?upgraded=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:5173'}/pricing`,
+      success_url: `${protocol}://${host}/dashboard?upgraded=true`,
+      cancel_url: `${protocol}://${host}/pricing`,
       customer_email: email,
       metadata: {
         userId,
