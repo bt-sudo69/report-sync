@@ -1,15 +1,27 @@
 import { createRequire } from 'module'
 import { createClient } from '@supabase/supabase-js'
 
-const require = createRequire(import.meta.url)
-const pdfParse = require('pdf-parse')
-const xlsx = require('xlsx')
+let pdfParse, xlsx
+try {
+  const require = createRequire(import.meta.url)
+  pdfParse = require('pdf-parse')
+  xlsx = require('xlsx')
+} catch (e) {
+  console.error('pdf/xlsx require failed:', e.message)
+  pdfParse = null
+  xlsx = null
+}
 
-/* ───── Supabase service client ───── */
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
+/* ───── Supabase service client (lazy to avoid startup crash) ───── */
+let _supabase = null
+function getSupabase() {
+  if (_supabase) return _supabase
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error('Missing Supabase env vars (VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
+  _supabase = createClient(url, key)
+  return _supabase
+}
 
 /* ───── OpenRouter config ───── */
 const OPENROUTER_API_KEY =process.env["OPENROUTER_API_KEY"] || ""
@@ -197,12 +209,12 @@ export default async function handler(req, res) {
     /* ── STEP A: Download & Parse ── */
     console.log(`[process-report] Downloading ${filePath}`)
 
-    const { data: fileData, error: dlError } = await supabase.storage
+    const { data: fileData, error: dlError } = await getSupabase().storage
       .from('documents')
       .download(filePath)
 
     if (dlError || !fileData) {
-      await supabase.from('reports').update({
+      await getSupabase().from('reports').update({
         status: 'error',
         extracted_data: { error: `Download failed: ${dlError?.message}` },
       }).eq('id', reportId)
@@ -214,7 +226,7 @@ export default async function handler(req, res) {
     const extractedText = await parseFile(buffer, fileName)
 
     if (!extractedText || extractedText.trim().length < 50) {
-      await supabase.from('reports').update({
+      await getSupabase().from('reports').update({
         status: 'error',
         extracted_data: { error: 'Document contains too little readable text to analyse.' },
       }).eq('id', reportId)
@@ -233,7 +245,7 @@ export default async function handler(req, res) {
       extraction = JSON.parse(cleaned)
     } catch (e) {
       console.error('[process-report] Extraction parse failed:', e.message)
-      await supabase.from('reports').update({
+      await getSupabase().from('reports').update({
         status: 'error',
         extracted_data: { error: `AI extraction failed: ${e.message}` },
       }).eq('id', reportId)
