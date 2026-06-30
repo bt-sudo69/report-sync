@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import Pricing from './pages/Pricing'
 import Dashboard from './pages/Dashboard'
+import NewReport from './pages/NewReport'
 import Report from './pages/Report'
 import SharedReport from './pages/SharedReport'
 
@@ -76,6 +77,14 @@ export default function App() {
           />
 
           {/* Protected routes — requires auth */}
+          <Route
+            path="/dashboard/new"
+            element={
+              <ProtectedRoute>
+                <NewReport />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/dashboard/*"
             element={
