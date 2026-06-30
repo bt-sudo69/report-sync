@@ -24,6 +24,9 @@ export default function Navbar() {
             <Link to="/" className="text-gray-600 hover:text-blue-600">
               Home
             </Link>
+            <Link to="/pricing" className="text-gray-600 hover:text-blue-600">
+              Pricing
+            </Link>
             {user ? (
               <>
                 <Link
@@ -77,6 +80,13 @@ export default function Navbar() {
             onClick={() => setMenuOpen(false)}
           >
             Home
+          </Link>
+          <Link
+            to="/pricing"
+            className="block text-gray-600"
+            onClick={() => setMenuOpen(false)}
+          >
+            Pricing
           </Link>
           {user ? (
             <>

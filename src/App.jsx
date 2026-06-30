@@ -8,6 +8,7 @@ import Signup from './pages/Signup'
 import Dashboard from './pages/Dashboard'
 import Report from './pages/Report'
 import SharedReport from './pages/SharedReport'
+import Pricing from './pages/Pricing'
 
 export default function App() {
   return (
@@ -51,6 +52,15 @@ export default function App() {
               <>
                 <Navbar />
                 <Signup />
+              </>
+            }
+          />
+          <Route
+            path="/pricing"
+            element={
+              <>
+                <Navbar />
+                <Pricing />
               </>
             }
           />
