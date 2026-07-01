@@ -5,7 +5,7 @@ import chromium from '@sparticuz/chromium'
 // Initialize Supabase client with service role key for backend operations
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
 export default async function handler(req, res) {

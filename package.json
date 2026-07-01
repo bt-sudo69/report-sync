@@ -24,6 +24,7 @@
     "react-dom": "^19.2.7",
     "react-dropzone": "^15.0.0",
     "react-hot-toast": "^2.6.0",
+    "uuid": "^11.0.0",
     "react-router-dom": "^6.30.4",
     "recharts": "^3.9.0",
     "stripe": "^22.3.0",
