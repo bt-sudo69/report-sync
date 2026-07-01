@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { triggerProcessing } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
+import ShareModal from '../components/ShareModal'
 import {
   ArrowLeft,
   Share2,
@@ -335,6 +336,7 @@ export default function Report() {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [polling, setPolling] = useState(false)
+  const [shareModalOpen, setShareModalOpen] = useState(false)
   const pollTimer = useRef(null)
 
   /* ───── fetch report ───── */
@@ -414,20 +416,31 @@ export default function Report() {
   }
 
   /* ───── share ───── */
-  const handleShare = async () => {
-    if (!report) return
-    const shareUrl = `${window.location.origin}/shared/${report.id}`
-    try {
-      await navigator.clipboard.writeText(shareUrl)
-      toast.success('Share link copied to clipboard!')
-    } catch {
-      toast.error('Could not copy link')
-    }
+  const handleShare = () => {
+    setShareModalOpen(true)
   }
 
-  /* ───── export placeholder ───── */
-  const handleExport = (format) => {
-    toast.success(`${format.toUpperCase()} export coming soon!`)
+  /* ───── export ───── */
+  const handleExport = async (format) => {
+    try {
+      toast.loading(`Generating ${format.toUpperCase()}...`)
+      const response = await fetch(`/api/export-${format}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId: report?.id, userId: user?.id })
+      })
+      const data = await response.json()
+      toast.dismiss()
+      if (response.ok && data.signedUrl) {
+        window.open(data.signedUrl, '_blank')
+        toast.success(`${format.toUpperCase()} exported!`)
+      } else {
+        toast.error(data.error || `Failed to export ${format.toUpperCase()}`)
+      }
+    } catch (err) {
+      toast.dismiss()
+      toast.error(`Export failed: ${err.message}`)
+    }
   }
 
   /* ───── parse report data ───── */
@@ -616,6 +629,13 @@ export default function Report() {
           </div>
         )}
       </div>
+
+      {/* Share Modal */}
+      <ShareModal
+        reportId={report?.id}
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+      />
     </div>
   )
 }
