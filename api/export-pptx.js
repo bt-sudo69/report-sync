@@ -72,9 +72,10 @@ export default async function handler(req, res) {
     // Create a new presentation
     const pptx = new PptxGenJS()
 
-    // Set layout to be consistent
-    pptx.layout = 'LAYOUT_TITLE'
-    pptx.title = report.title
+    // Set layout to be consistent (16:9 widescreen)
+    pptx.defineLayout({ name: 'LAYOUT_WIDE', width: 10, height: 5.625 })
+    pptx.layout = 'LAYOUT_WIDE'
+    pptx.author = 'GetReportSync'
 
     // Define colors
     const blue = { color: '2563EB' } // Hex for #2563EB
