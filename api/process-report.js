@@ -109,41 +109,100 @@ async function parseFile(arrayBuffer, fileName) {
   if (ext === 'xlsx' || ext === 'xls') {
     if (!XLSX) throw new Error('xlsx not available')
     const wb = XLSX.read(buffer, { type: 'buffer' })
-    return truncateText(JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])))
+    
+    // Parse ALL sheets, not just the first one
+    let allData = {}
+    let textRepresentation = ''
+    wb.SheetNames.forEach(sheetName => {
+      const sheet = wb.Sheets[sheetName]
+      const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: null })
+      const csvData = XLSX.utils.sheet_to_csv(sheet)
+      allData[sheetName] = jsonData
+      textRepresentation += `\n\nSHEET: ${sheetName}\n${csvData}`
+    })
+    // Also extract as raw text for the AI to read column headers
+    const structuredSummary = JSON.stringify(allData).substring(0, 50000)
+    const combined = textRepresentation + '\n\n--- STRUCTURED SUMMARY ---\n' + structuredSummary
+    return truncateText(combined)
   }
   if (ext === 'csv') return truncateText(buffer.toString('utf8'))
   if (ext === 'docx') {
     const mammoth = await import('mammoth')
-    return truncateText((await mammoth.extractRawText({ buffer })).value)
+    const result = await mammoth.extractRawText({ buffer })
+    return truncateText(result.value)
   }
   return truncateText(buffer.toString('utf8'))
 }
 
 /* ───── Extraction prompt ───── */
 function extractionPrompt(text) {
-  return `Analyse this business document and return a JSON object with this EXACT structure. Return ONLY valid JSON, no markdown fences, no explanation.
+  return `You have been given a business document with the following data.
+Extract EVERYTHING — do not summarise, do not skip columns, do not truncate.
+
+DOCUMENT CONTENT:
+${text.substring(0, 55000)}
+
+Return a JSON object with this exact structure. Return ONLY valid JSON, no markdown fencing, no explanation text.
 
 {
-  "document_type": "financial|sales|operations|hr|project|general",
-  "title": "A concise professional title for this document",
+  "document_type": "financial"|"sales"|"operations"|"hr"|"project"|"general",
+  "title": "A descriptive title for this data",
+  "time_period": "e.g. Q1-Q2 2026, Jan 2025 - Jun 2026",
+  "all_periods": ["every time period found — every month, quarter, week"],
   "kpis": [
-    {"label": "Metric Name", "value": "123", "unit": "GBP", "change_pct": 12.5, "trend": "up"}
+    {
+      "label": "Metric Name",
+      "value": "123",
+      "unit": "£, %, units, etc",
+      "change_pct": 12.5,
+      "trend": "up"|"down"|"neutral"|null,
+      "period": "Q1 2025"|null
+    }
   ],
+  // Extract EVERY metric you can find. Aim for 8-15 KPIs minimum.
+  // Look at column headers, row labels, totals, subtotals, counts, percentages, averages.
+
+  "time_series": [
+    {
+      "metric_name": "Revenue",
+      "unit": "GBP",
+      "data_points": [
+        { "period": "Jan 2025", "value": 1000 },
+        { "period": "Feb 2025", "value": 1200 }
+      ]
+    }
+  ],
+  // Extract EVERY column that contains numeric data over time.
+  // This powers the charts and time period selector.
+
   "charts": [
-    {"type": "bar", "title": "Chart Title", "x_label": "X", "y_label": "Y", "data": {"labels": ["Q1","Q2"], "datasets": [{"label": "Series", "data": [100,120]}]}}
+    {
+      "type": "line"|"bar"|"area"|"doughnut",
+      "title": "Chart Title",
+      "x_label": "X axis label",
+      "y_label": "Y axis label",
+      "recommended": true|false,
+      "data": {
+        "labels": ["Q1","Q2","Q3","Q4"],
+        "datasets": [
+          { "label": "Series Name", "data": [100, 120, 90, 150], "color": null }
+        ]
+      }
+    }
   ],
+  // Generate 4-6 charts. Use line for trends, bar for comparisons, doughnut for breakdowns.
+
   "key_findings": [
-    "First key finding as a complete sentence.",
-    "Second key finding."
+    "8-12 findings, each a single specific sentence with a number in it."
   ],
-  "time_period": "Q3 2024"
-}
 
-IMPORTANT: Extract at least 3 KPIs and 3 key findings. Even simple metrics like totals, counts, averages, or price ranges count as KPIs.
-
-Document content:
-${text}`
-}
+  "categories": {
+    "Region": ["North", "South", "East", "West"],
+    "Product": ["Product A", "Product B"]
+  }
+  // Any categorical breakdowns found (e.g. regions, products, departments)
+}`
+}`
 
 /* ───── Narrative prompt ───── */
 function narrativePrompt(docType, title, kpis, keyFindings) {
@@ -206,7 +265,7 @@ export default async function handler(req, res) {
     console.log('[process-report] Running extraction...')
     const sysExtract = 'You extract structured data from business documents. Return ONLY valid JSON, no markdown fences, no explanation text. Just the raw JSON object.'
     const rawExtraction = await callAI(sysExtract, extractionPrompt(promptText), {
-      maxTokens: 2000, temperature: 0.1, timeoutMs: 60000,
+      maxTokens: 4000, temperature: 0.1, timeoutMs: 90000,
     })
 
     const cleanJson = rawExtraction.replace(/```json|```/g, '').trim()
@@ -250,6 +309,9 @@ export default async function handler(req, res) {
       document_type: extracted.document_type,
       kpis: extracted.kpis,
       charts: extracted.charts,
+      time_series: extracted.time_series || null,
+      all_periods: extracted.all_periods || null,
+      categories: extracted.categories || null,
       extracted_data: {
         key_findings: extracted.key_findings,
         time_period: extracted.time_period,
