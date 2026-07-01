@@ -67,7 +67,7 @@ export default async function handler(req, res) {
     }
 
     // Construct the share URL
-    const shareUrl = `https://getreportsync.com/shared/${token}`
+    const shareUrl = `https://www.getreportsync.com/shared/${token}`
 
     return res.status(200).json({ shareUrl })
   } catch (err) {

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 
-// Inline Supabase client using VITE_ env vars
+// Inline Supabase client using VITE_ env vars (anon — no auth needed!)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 const supabase = supabaseUrl && supabaseAnonKey
@@ -42,11 +42,12 @@ const SharedReport = () => {
         setIsLoading(true)
         setError(null)
 
-        // Fetch report by share token
+        // Fetch report by share token — anon client, no auth
         const { data, error } = await supabase
           .from('reports')
-          .select('id, title, document_type, kpis, charts, executive_summary, key_findings, time_period, user_id, share_active, share_expires_at')
+          .select('*')
           .eq('share_token', token)
+          .eq('share_active', true)
           .single()
 
         if (error) throw error
@@ -57,27 +58,17 @@ const SharedReport = () => {
           return
         }
 
-        // Check if share is active
-        if (!data.share_active) {
-          setError('This share link has been disabled')
+        // Check if share has expired (extra safety beyond RLS)
+        if (data.share_expires_at && new Date(data.share_expires_at) < new Date()) {
+          setError('This share link has expired')
           setIsLoading(false)
           return
-        }
-
-        // Check if share has expired
-        if (data.share_expires_at) {
-          const expiresAt = new Date(data.share_expires_at)
-          if (expiresAt < new Date()) {
-            setError('This share link has expired')
-            setIsLoading(false)
-            return
-          }
         }
 
         setReport(data)
       } catch (err) {
         console.error('[SharedReport] Error loading report:', err)
-        setError('Failed to load report')
+        setError('Failed to load report. Please try again.')
       } finally {
         setIsLoading(false)
       }
@@ -176,12 +167,11 @@ const SharedReport = () => {
         .from('viewer_sessions')
         .select('viewer_name, viewer_role, last_seen')
         .eq('report_id', report.id)
-        .gt('last_seen', new Date(Date.now() - 90 * 1000).toISOString()) // Last 90 seconds
+        .gt('last_seen', new Date(Date.now() - 90 * 1000).toISOString())
         .order('last_seen', { ascending: false })
 
       if (error) throw error
 
-      // Format the data for display
       const formatted = (data || []).map(viewer => ({
         ...viewer,
         initials: viewer.viewer_name
@@ -216,8 +206,6 @@ const SharedReport = () => {
 
     // Update every 30 seconds
     const interval = setInterval(updateLastSeen, 30 * 1000)
-    
-    // Initial update
     updateLastSeen()
 
     return () => clearInterval(interval)
@@ -226,7 +214,6 @@ const SharedReport = () => {
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      // Remove presence subscription
       if (presenceChannelRef.current) {
         supabase.removeChannel(presenceChannelRef.current)
       }
@@ -237,8 +224,11 @@ const SharedReport = () => {
   const ReportViewer = ({ reportData }) => {
     if (!reportData) return null
 
+    // key_findings is stored inside extracted_data in the database
+    const extractedData = reportData.extracted_data || {}
     const kpis = Array.isArray(reportData.kpis) ? reportData.kpis : []
-    const keyFindings = Array.isArray(reportData.key_findings) ? reportData.key_findings : []
+    const keyFindings = Array.isArray(extractedData.key_findings) ? extractedData.key_findings : []
+    const timePeriod = extractedData.time_period || reportData.time_period || ''
     const charts = Array.isArray(reportData.charts) ? reportData.charts : []
 
     return (
@@ -246,7 +236,7 @@ const SharedReport = () => {
         {/* Title */}
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{reportData.title}</h1>
         <p className="text-sm text-gray-500 mb-6">
-          {reportData.document_type} report  ·  {reportData.time_period}
+          {reportData.document_type} report{timePeriod ? `  ·  ${timePeriod}` : ''}
         </p>
 
         {/* Executive Summary */}
@@ -318,7 +308,7 @@ const SharedReport = () => {
     )
   }
 
-  // If report hasn't loaded yet, show loading state
+  // Loading state
   if (isLoading && !report) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
@@ -329,18 +319,18 @@ const SharedReport = () => {
     )
   }
 
-  // If there was an error loading the report
+  // Error state
   if (error && !report) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <h2 className="text-2xl font-bold text-red-600 mb-4">
             Unable to load report
           </h2>
           <p className="text-lg text-gray-600 mb-6">{error}</p>
           <button
             onClick={() => navigate('/')}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             Go to Home
           </button>
@@ -349,7 +339,7 @@ const SharedReport = () => {
     )
   }
 
-  // If we have the report but haven't submitted identity yet
+  // Identity collection form
   if (report && !isIdentitySubmitted) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
@@ -373,7 +363,7 @@ const SharedReport = () => {
                   value={viewerIdentity.name}
                   onChange={(e) => setViewerIdentity({ ...viewerIdentity, name: e.target.value })}
                   placeholder="Enter your name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 />
               </div>
@@ -387,7 +377,7 @@ const SharedReport = () => {
                   value={viewerIdentity.role}
                   onChange={(e) => setViewerIdentity({ ...viewerIdentity, role: e.target.value })}
                   placeholder="Enter your role"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 />
               </div>
@@ -395,14 +385,14 @@ const SharedReport = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
               >
                 {isLoading ? 'Joining...' : 'Join as Viewer'}
               </button>
             </form>
             
             {error && (
-              <div className="mt-3 p-3 bg-red-50 border-l-4 border-red-400 text-red-700 text-sm">
+              <div className="mt-3 p-3 bg-red-50 border-l-4 border-red-400 text-red-700 text-sm rounded">
                 {error}
               </div>
             )}
@@ -412,7 +402,7 @@ const SharedReport = () => {
     )
   }
 
-  // Main viewer interface (after identity is submitted)
+  // Main viewer interface
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       {/* Header with viewer identity and active viewers */}
@@ -437,41 +427,41 @@ const SharedReport = () => {
             
             <div className="hidden md:flex items-center space-x-4">
               <span className="text-sm text-gray-500">Currently viewing:</span>
-              <div className="flex space-x-2">
-                {activeViewers.map((viewer, index) => (
+              <div className="flex -space-x-2">
+                {activeViewers.slice(0, 5).map((viewer, index) => (
                   <div 
                     key={`${viewer.viewer_name}-${index}`} 
-                    className="flex items-center"
+                    className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-medium text-white ring-2 ring-white"
                     title={`${viewer.viewer_name} (${viewer.viewer_role})`}
                   >
-                    <div className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium">
-                      <span className="bg-blue-600 text-white">{viewer.initials}</span>
-                    </div>
+                    {viewer.initials}
                   </div>
                 ))}
-                <span className="text-sm text-gray-600">
-                  {activeViewers.length} others
-                </span>
               </div>
+              {activeViewers.length > 5 && (
+                <span className="text-sm text-gray-500">
+                  +{activeViewers.length - 5} more
+                </span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Report Viewer - read-only version */}
+      {/* Report Viewer */}
       <div className="flex-1 overflow-hidden">
         <div className="h-full w-full overflow-y-auto">
           <ReportViewer reportData={report} />
         </div>
       </div>
 
-      {/* Footer banner */}
+      {/* Footer */}
       <div className="border-t border-gray-200 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div className="text-center sm:text-left mt-4 sm:mt-0">
               <p className="text-sm text-gray-500">
-                Built with ReportSync — Turn any document into a report like this.
+                Built with ReportSync — Turn any document into a professional report.
               </p>
               <a 
                 href="/signup" 
