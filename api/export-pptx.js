@@ -1,11 +1,24 @@
 import { createClient } from '@supabase/supabase-js'
-import PptxGenJS from 'pptxgenjs'
+import { createRequire } from 'module'
 
-// Initialize Supabase client with service role key for backend operations
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
+let PptxGenJS
+try {
+  const require = createRequire(import.meta.url)
+  PptxGenJS = require('pptxgenjs')
+} catch (e) {
+  console.error('pptxgenjs require failed:', e.message)
+}
+
+// Initialize Supabase client with service role key for backend operations (lazy)
+let _supabase = null
+function getSupabase() {
+  if (_supabase) return _supabase
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error('Missing Supabase env vars')
+  _supabase = createClient(url, key, { auth: { persistSession: false } })
+  return _supabase
+}
 
 export default async function handler(req, res) {
   // Only allow POST requests
@@ -25,7 +38,7 @@ export default async function handler(req, res) {
     }
 
     // Verify the report belongs to the user (security check)
-    const { data: report, error: reportError } = await supabase
+    const { data: report, error: reportError } = await getSupabase()
       .from('reports')
       .select('id, user_id, title, document_type, kpis, executive_summary, key_findings, time_period')
       .eq('id', reportId)
@@ -36,6 +49,10 @@ export default async function handler(req, res) {
       return res.status(403).json({ 
         error: 'Unauthorized: Report not found or access denied'
       })
+    }
+
+    if (!PptxGenJS) {
+      return res.status(500).json({ error: 'pptxgenjs library not available' })
     }
 
     // Create a new presentation
@@ -182,7 +199,7 @@ export default async function handler(req, res) {
 
     // Upload PPTX to Supabase Storage
     const filePath = `${userId}/report-${reportId}.pptx`
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await getSupabase().storage
       .from('exports')
       .upload(filePath, pptxBuffer, {
         contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -194,7 +211,7 @@ export default async function handler(req, res) {
     }
 
     // Generate signed URL (valid for 1 hour)
-    const { data: urlData, error: urlError } = await supabase.storage
+    const { data: urlData, error: urlError } = await getSupabase().storage
       .from('exports')
       .createSignedUrl(filePath, 3600) // 3600 seconds = 1 hour
 
