@@ -3,8 +3,10 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/process-report.js": {
-      "maxDuration": 60
-    }
+    "api/process-report.js": { "maxDuration": 60 },
+    "api/ask-bot.js": { "maxDuration": 10 },
+    "api/export-pdf.js": { "maxDuration": 10 },
+    "api/export-pptx.js": { "maxDuration": 10 },
+    "api/generate-share-link.js": { "maxDuration": 10 }
   }
 }
