@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 // Initialize Supabase client with service role key for backend operations
 const supabase = createClient(
-  process.env.SUPABASE_URL,
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
