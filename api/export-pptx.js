@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { Presentation } from 'pptxgenjs'
+import PptxGenJS from 'pptxgenjs'
 
 // Initialize Supabase client with service role key for backend operations
 const supabase = createClient(
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     }
 
     // Create a new presentation
-    const pptx = new Presentation()
+    const pptx = new PptxGenJS()
 
     // Set layout to be consistent
     pptx.layout = 'LAYOUT_TITLE'
@@ -178,7 +178,7 @@ export default async function handler(req, res) {
     }
 
     // Generate PPTX buffer
-    const pptxBuffer = await pptx.writeBuffer({ fileType: 'pptx' })
+    const pptxBuffer = await pptx.write()
 
     // Upload PPTX to Supabase Storage
     const filePath = `${userId}/report-${reportId}.pptx`
