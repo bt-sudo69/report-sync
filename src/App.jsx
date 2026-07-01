@@ -11,6 +11,8 @@ import Dashboard from './pages/Dashboard'
 import NewReport from './pages/NewReport'
 import Report from './pages/Report'
 import SharedReport from './pages/SharedReport'
+import SharedLinks from './pages/SharedLinks'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -90,6 +92,30 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/new-report"
+            element={
+              <ProtectedRoute>
+                <NewReport />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/shared-links"
+            element={
+              <ProtectedRoute>
+                <SharedLinks />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Settings />
               </ProtectedRoute>
             }
           />
