@@ -303,16 +303,17 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[process-report] Error:', err.message, err.stack)
 
-    await supabase
-      .from('reports')
-      .update({
-        status: 'error',
-        error_message: err.message,
-        extracted_data: { error: err.message },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', reportId)
-      .catch(() => {})
+    try {
+      await supabase
+        .from('reports')
+        .update({
+          status: 'error',
+          error_message: err.message,
+          extracted_data: { error: err.message },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', reportId)
+    } catch (_) { /* don't let error-update crash the handler */ }
 
     return res.status(200).json({
       success: false,
