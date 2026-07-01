@@ -175,6 +175,10 @@ export default async function handler(req, res) {
 
   const supabase = getSupabase()
 
+  // Diagnostic: log connection info (safe — no secrets)
+  console.log(`[process-report] Supabase URL: ${process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'NOT SET'}`)
+  console.log(`[process-report] Service key set: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY}`)
+
   // Mark as processing
   console.log(`[process-report] Starting: reportId=${reportId}, file=${filePath}`)
 
@@ -184,32 +188,25 @@ export default async function handler(req, res) {
       .update({ status: 'processing', error_message: null, updated_at: new Date().toISOString() })
       .eq('id', reportId)
 
-    /* ── Step A: Download file via signed URL ── */
-    console.log('[process-report] Creating signed URL...')
-    const { data: signedData, error: signedError } = await supabase.storage
+    /* ── Step A: Download file from Supabase Storage ── */
+    console.log(`[process-report] Downloading file: ${filePath}`)
+    console.log(`[process-report] Bucket: documents`)
+
+    // Try direct download first (most reliable with service role key)
+    const { data: fileData, error: downloadError } = await supabase.storage
       .from('documents')
-      .createSignedUrl(filePath, 120)
+      .download(filePath)
 
-    if (signedError || !signedData?.signedUrl) {
-      throw new Error('Failed to get signed URL: ' + (signedError?.message || 'no URL'))
+    if (downloadError) {
+      console.error('[process-report] Direct download error:', JSON.stringify(downloadError))
+      throw new Error('File download failed: ' + (downloadError.message || JSON.stringify(downloadError)))
     }
 
-    // Download with 30s timeout
-    const dlController = new AbortController()
-    const dlTimer = setTimeout(() => dlController.abort(), 30000)
-
-    let arrayBuffer
-    try {
-      const fileRes = await fetch(signedData.signedUrl, { signal: dlController.signal })
-      clearTimeout(dlTimer)
-      if (!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`)
-      arrayBuffer = await fileRes.arrayBuffer()
-    } catch (dlErr) {
-      clearTimeout(dlTimer)
-      if (dlErr.name === 'AbortError') throw new Error('File download timed out (30s)')
-      throw new Error('File download failed: ' + dlErr.message)
+    if (!fileData) {
+      throw new Error('File download returned no data')
     }
 
+    const arrayBuffer = await fileData.arrayBuffer()
     console.log(`[process-report] Downloaded ${arrayBuffer.byteLength} bytes`)
 
     /* ── Step B: Parse file ── */
