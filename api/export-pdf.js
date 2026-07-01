@@ -215,7 +215,7 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[export-pdf] Handler error:', err)
     return res.status(500).json({ 
-      error: 'Failed to generate PDF export' 
+      error: 'Failed to generate PDF export: ' + (err.message || 'Unknown error')
     })
   }
 }

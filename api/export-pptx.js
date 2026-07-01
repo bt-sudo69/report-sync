@@ -237,7 +237,7 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('[export-pptx] Handler error:', err)
     return res.status(500).json({ 
-      error: 'Failed to generate PPTx export' 
+      error: 'Failed to generate PPTx export: ' + (err.message || 'Unknown error')
     })
   }
 }
