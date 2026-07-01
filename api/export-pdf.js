@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     console.log('[export-pdf] Verifying report:', { reportId, userId })
     const { data: report, error: reportError } = await supabase
       .from('reports')
-      .select('id, user_id, title, document_type, kpis, executive_summary, key_findings, time_period')
+      .select('id, user_id, title, kpis, executive_summary, extracted_data')
       .eq('id', reportId)
       .eq('user_id', userId)
       .single()
@@ -46,6 +46,12 @@ export default async function handler(req, res) {
         error: 'Report not found or access denied'
       })
     }
+
+    // Extract nested fields from extracted_data JSONB
+    const extracted = report.extracted_data || {}
+    const key_findings = extracted.key_findings || []
+    const time_period = extracted.time_period || ''
+    const document_type = extracted.document_type || ''
 
     // Generate HTML for the report
     const html = `
@@ -127,7 +133,7 @@ export default async function handler(req, res) {
         <body>
           <div class="header">
             <div class="title">${report.title}</div>
-            <div class="meta">Report type: ${report.document_type} | Period: ${report.time_period}</div>
+            <div class="meta">Report type: ${document_type} | Period: ${time_period}</div>
           </div>
           
           <div class="section">
@@ -155,8 +161,8 @@ export default async function handler(req, res) {
           <div class="section">
             <h2 class="section-title">Key Findings</h2>
             <ul class="findings-list">
-              ${Array.isArray(report.key_findings) && report.key_findings.length > 0
-                ? report.key_findings.map(finding => `<li>${finding}</li>`).join('')
+              ${Array.isArray(key_findings) && key_findings.length > 0
+                ? key_findings.map(finding => `<li>${finding}</li>`).join('')
                 : '<p>No key findings available.</p>'
               }
             </ul>

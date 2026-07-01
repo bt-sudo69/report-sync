@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     console.log('[export-pptx] Verifying report:', { reportId, userId })
     const { data: report, error: reportError } = await getSupabase()
       .from('reports')
-      .select('id, user_id, title, document_type, kpis, executive_summary, key_findings, time_period')
+      .select('id, user_id, title, kpis, executive_summary, extracted_data')
       .eq('id', reportId)
       .eq('user_id', userId)
       .single()
@@ -58,6 +58,12 @@ export default async function handler(req, res) {
         error: 'Report not found or access denied'
       })
     }
+
+    // Extract nested fields from extracted_data JSONB
+    const extracted = report.extracted_data || {}
+    const key_findings = extracted.key_findings || []
+    const time_period = extracted.time_period || ''
+    const document_type = extracted.document_type || ''
 
     if (!PptxGenJS) {
       return res.status(500).json({ error: 'pptxgenjs library not available' })
@@ -81,7 +87,7 @@ export default async function handler(req, res) {
       x: 0.5, y: 1.5, w: 9, h: 2,
       fontSize: 32, bold: true, color: '2563EB', align: 'center'
     })
-    slide.addText(`Report type: ${report.document_type} | Period: ${report.time_period}`, {
+    slide.addText(`Report type: ${document_type} | Period: ${time_period}`, {
       x: 0.5, y: 3.5, w: 9, h: 1,
       fontSize: 18, color: '6B7280', align: 'center'
     })
@@ -172,10 +178,10 @@ export default async function handler(req, res) {
     }
 
     // Slides 4-N: Key Findings (max 5 per slide)
-    if (Array.isArray(report.key_findings) && report.key_findings.length > 0) {
+    if (Array.isArray(key_findings) && key_findings.length > 0) {
       const chunkSize = 5
-      for (let i = 0; i < report.key_findings.length; i += chunkSize) {
-        const chunk = report.key_findings.slice(i, i + chunkSize)
+      for (let i = 0; i < key_findings.length; i += chunkSize) {
+        const chunk = key_findings.slice(i, i + chunkSize)
         slide = pptx.addSlide()
         slide.addText('Key Findings', {
           x: 0.5, y: 0.5, w: 9, h: 1,
