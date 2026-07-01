@@ -22,19 +22,20 @@ export default async function handler(req, res) {
 
     const supabase = getSupabase()
 
-    const { data: report, error: reportError } = await supabase
+    const { data: reports, error: reportError } = await supabase
       .from('reports')
       .select('id, user_id, title, kpis, executive_summary, extracted_data')
       .eq('id', reportId)
       .eq('user_id', userId)
-      .single()
+      .limit(1)
 
     if (reportError) {
       return res.status(403).json({ error: 'Report not found: ' + reportError.message })
     }
-    if (!report) {
+    if (!reports || reports.length === 0) {
       return res.status(403).json({ error: 'Report not found or access denied' })
     }
+    const report = reports[0]
 
     const extracted = report.extracted_data || {}
     const key_findings = extracted.key_findings || []
