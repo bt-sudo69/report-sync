@@ -1,70 +1,230 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 
-const Landing = () => {
+/* ───── FAQ Accordion Item ───── */
+function FaqItem({ question, answer, open, onToggle }) {
   return (
-    <div className="font-inter bg-white text-gray-900 antialiased">
-      {/* Section 1: Navigation */}
-      <nav className="bg-white sticky top-0 z-50 border-b border-gray-200">
+    <div className="border-b border-gray-200 last:border-0">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between py-5 text-left text-gray-900 font-medium hover:text-blue-600 transition-colors"
+      >
+        <span>{question}</span>
+        <svg
+          className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${
+            open ? 'rotate-180' : ''
+          }`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      <div
+        className={`overflow-hidden transition-all duration-300 ${
+          open ? 'max-h-96 pb-5' : 'max-h-0'
+        }`}
+      >
+        <p className="text-gray-600 leading-relaxed">{answer}</p>
+      </div>
+    </div>
+  )
+}
+
+/* ───── Star Rating ───── */
+function Stars({ count = 5 }) {
+  return (
+    <span className="text-yellow-400" aria-label={`${count} stars`}>
+      {'★'.repeat(count)}
+    </span>
+  )
+}
+
+/* ───── Main Landing ───── */
+export default function Landing() {
+  const [faqOpen, setFaqOpen] = useState(null)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const faqs = [
+    {
+      q: 'What file formats do you support?',
+      a: 'We support PDF, Excel (.xlsx, .xls), CSV, Word (.docx), and PowerPoint (.pptx). Just upload your raw file and our AI handles the rest — no formatting needed.',
+    },
+    {
+      q: 'How long does it take to generate a report?',
+      a: 'Most reports are ready in 30–90 seconds. Larger documents with complex datasets may take up to 2 minutes. You\'ll see the report appear in real time as it\'s being built.',
+    },
+    {
+      q: 'Can I export reports for presentations?',
+      a: 'Yes. Every report can be exported to PDF (for email) or PowerPoint (with editable slides and charts). Exports are professionally formatted and ready to present.',
+    },
+    {
+      q: 'Is my data secure?',
+      a: 'Absolutely. All documents and generated reports are stored in encrypted cloud storage. We never share or sell your data. You can delete any report at any time.',
+    },
+    {
+      q: 'Can my team view reports without logging in?',
+      a: 'Yes. Shared reports are accessible via a unique link — anyone you send it to can view the report, see live charts, and even ask the AI questions without creating an account.',
+    },
+    {
+      q: 'What happens after the free trial?',
+      a: 'Your 7-day trial gives you full access to all features. When it ends, you can choose a plan that fits your needs, or your reports stay accessible in read-only mode.',
+    },
+  ]
+
+  /* smooth scroll helper */
+  const scrollTo = (id) => {
+    const el = document.getElementById(id)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div className="font-sans bg-white text-gray-900 antialiased">
+
+      {/* ═══════════════════════════════ 1. NAV ═══════════════════════════════ */}
+      <nav
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-200 ${
+          scrolled
+            ? 'bg-[#0A0F1E]/95 backdrop-blur-md shadow-lg'
+            : 'bg-[#0A0F1E]'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <div className="flex items-center space-x-3">
-            <span className="text-2xl font-bold text-blue-600">ReportSync</span>
-            {/* Sync icon placeholder - you can replace with actual icon */}
-            <span className="text-blue-600">⟳</span>
+          {/* Logo */}
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="flex items-center space-x-2"
+          >
+            <span className="text-2xl font-bold text-white tracking-tight">
+              ReportSync
+            </span>
+            <span className="text-blue-400 text-xl">⟳</span>
+          </button>
+
+          {/* Desktop nav links */}
+          <div className="hidden md:flex items-center space-x-8">
+            <button
+              onClick={() => scrollTo('features')}
+              className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
+            >
+              Features
+            </button>
+            <button
+              onClick={() => scrollTo('pricing')}
+              className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
+            >
+              Pricing
+            </button>
+            <button
+              onClick={() => scrollTo('faq')}
+              className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
+            >
+              FAQ
+            </button>
+            <Link
+              to="/login"
+              className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
+            >
+              Login
+            </Link>
+            <Link
+              to="/signup"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2 rounded-md transition-colors"
+            >
+              Start free trial
+            </Link>
           </div>
-          <div className="hidden md:flex space-x-8">
-            <Link to="/features" className="text-gray-600 hover:text-gray-900 transition-colors">Features</Link>
-            <Link to="/pricing" className="text-gray-600 hover:text-gray-900 transition-colors">Pricing</Link>
-            <a href="#" className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2 rounded-md transition-colors">
-              Start Free Trial
-            </a>
-          </div>
-          {/* Mobile menu button (hamburger) - would need JavaScript for full functionality */}
+
+          {/* Mobile hamburger */}
           <div className="md:hidden">
-            <button className="text-gray-500 hover:text-gray-700">☰</button>
+            <button className="text-gray-300 hover:text-white p-2">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
           </div>
         </div>
       </nav>
 
-      {/* Section 2: Hero */}
-      <section className="pt-20 pb-24 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-12">
-            {/* Hero Text */}
-            <div className="flex-1 space-y-6">
-              <h1 className="text-4xl font-bold lg:text-5xl">
-                Stop spending your week building reports.
+      {/* ═══════════════════════════════ 2. HERO ═══════════════════════════════ */}
+      <section className="bg-[#0A0F1E] min-h-screen flex items-center pt-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
+
+            {/* Hero text */}
+            <div className="flex-1 space-y-6 text-center lg:text-left">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight tracking-tight">
+                Stop spending your week<br />
+                <span className="text-blue-400">building reports.</span>
               </h1>
-              <p className="text-lg lg:text-xl text-gray-600 leading-relaxed">
+              <p className="text-lg sm:text-xl text-gray-300 leading-relaxed max-w-xl mx-auto lg:mx-0">
                 Upload any document — financial data, sales reports, project updates — and get a professional executive report with charts, trends, and AI insights in under 2 minutes.
               </p>
-              <div className="flex space-x-4">
-                <a href="#" className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-md flex items-center justify-center transition-colors lg:px-8 lg:py-4">
-                  Start Free Trial — No card needed
-                </a>
-                <Link to="/how-it-works" className="border border-gray-300 hover:border-blue-500 text-gray-700 hover:text-blue-600 font-medium px-5 py-3 rounded-md flex items-center justify-center transition-colors lg:px-8 lg:py-4">
-                  See how it works
+              <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start">
+                <Link
+                  to="/signup"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-4 rounded-lg text-lg transition-all hover:shadow-xl hover:shadow-blue-600/25 w-full sm:w-auto text-center"
+                >
+                  Start free for 7 days
                 </Link>
+                <button
+                  onClick={() => scrollTo('how-it-works')}
+                  className="border border-gray-500 hover:border-blue-400 text-gray-200 hover:text-white font-medium px-8 py-4 rounded-lg text-lg transition-colors w-full sm:w-auto text-center"
+                >
+                  See how it works
+                </button>
               </div>
-              <p className="mt-2 text-sm text-gray-500">
-                7-day free trial · No credit card · Cancel anytime
+              <p className="text-sm text-gray-400 mt-2">
+                ✓ No credit card required · Cancel anytime
               </p>
             </div>
-            
-            {/* Hero Visual */}
-            <div className="flex-1 lg:w-1/2">
-              <div className="aspect-w-16 aspect-h-9 bg-gray-100 rounded-lg overflow-hidden relative">
-                {/* Placeholder for report mockup */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
-                  <div className="space-y-4">
-                    <div className="w-full h-8 bg-gray-300 rounded animate-pulse"></div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="w-full h-16 bg-gray-300 rounded animate-pulse"></div>
-                      <div className="w-full h-16 bg-gray-300 rounded animate-pulse"></div>
-                      <div className="w-full h-16 bg-gray-300 rounded animate-pulse"></div>
-                      <div className="w-full h-16 bg-gray-300 rounded animate-pulse"></div>
-                    </div>
-                    <div className="w-full h-20 bg-gray-300 rounded animate-pulse"></div>
+
+            {/* Hero visual — animated demo window */}
+            <div className="flex-1 w-full max-w-lg lg:max-w-none">
+              <div className="bg-[#0D1425] border border-gray-700/50 rounded-xl overflow-hidden shadow-2xl shadow-blue-900/20">
+                {/* Window chrome */}
+                <div className="flex items-center space-x-2 px-4 py-3 border-b border-gray-700/50">
+                  <span className="w-3 h-3 rounded-full bg-red-500/80" />
+                  <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                  <span className="w-3 h-3 rounded-full bg-green-500/80" />
+                  <span className="ml-3 text-xs text-gray-500 font-mono">Q3 Executive Report</span>
+                </div>
+                {/* Window content */}
+                <div className="p-4 sm:p-6 space-y-4">
+                  {/* Title */}
+                  <div className="h-3 bg-blue-400/20 rounded w-3/4 animate-pulse" />
+                  <div className="h-2 bg-gray-600/30 rounded w-1/2 animate-pulse" />
+                  {/* KPI cards */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {['Revenue', 'Profit', 'Customers', 'Growth'].map((label) => (
+                      <div key={label} className="bg-[#111A2E] rounded-lg p-3 border border-gray-700/30">
+                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</div>
+                        <div className="text-sm font-bold text-white mt-1">£{['1.2M', '384K', '2,847', '+23%'][['Revenue', 'Profit', 'Customers', 'Growth'].indexOf(label)]}</div>
+                        <div className={`text-[10px] mt-0.5 ${['Revenue', 'Profit', 'Customers', 'Growth'].indexOf(label) === 2 ? 'text-red-400' : 'text-green-400'}`}>
+                          {['+12.5%', '+8.2%', '-3.1%', '+23%'][['Revenue', 'Profit', 'Customers', 'Growth'].indexOf(label)]} vs last period
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Mini chart bar */}
+                  <div className="flex items-end space-x-1 h-12">
+                    {[40, 65, 45, 80, 55, 90, 70].map((h, i) => (
+                      <div
+                        key={i}
+                        className="flex-1 bg-gradient-to-t from-blue-500 to-blue-400 rounded-t"
+                        style={{ height: `${h}%` }}
+                      />
+                    ))}
+                  </div>
+                  {/* Status line */}
+                  <div className="flex items-center space-x-2 text-[10px] text-gray-500">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    <span>AI analysis complete · Ready to share</span>
                   </div>
                 </div>
               </div>
@@ -73,70 +233,83 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* Section 3: Social proof bar */}
-      <section className="pt-12 pb-8 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          <p className="text-sm text-gray-600">
-            Trusted by 500+ businesses across the UK
-          </p>
-          <div className="flex items-center space-x-2">
-            <span className="text-yellow-400">★★★★★</span>
-            <span className="text-sm text-gray-600">4.9 from 200+ reviews</span>
+      {/* ═══════════════════════════════ 3. SOCIAL PROOF BAR ═══════════════════════════════ */}
+      <section className="bg-gray-50 border-y border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-center">
+            <div>
+              <div className="text-lg">
+                <Stars count={5} />
+              </div>
+              <div className="text-xs text-gray-500 mt-1">4.9 from 200+ reviews</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-gray-900">500+</div>
+              <div className="text-xs text-gray-500 mt-1">Businesses trust us</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-gray-900">12K+</div>
+              <div className="text-xs text-gray-500 mt-1">Hours saved</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-gray-900">&lt;2min</div>
+              <div className="text-xs text-gray-500 mt-1">Avg. generation time</div>
+            </div>
+            <div className="col-span-2 md:col-span-1">
+              <div className="text-2xl font-bold text-gray-900">8,200+</div>
+              <div className="text-xs text-gray-500 mt-1">Reports this month</div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Section 4: Pain points */}
-      <section className="pt-16 pb-20 bg-gray-50">
+      {/* ═══════════════════════════════ 4. PAIN SECTION ═══════════════════════════════ */}
+      <section className="bg-[#0A0F1E] py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center mb-12">
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-white text-center mb-4">
             Sound familiar?
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Pain Card 1 */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col items-center">
-              <div className="text-3xl mb-4">😤</div>
-              <h3 className="font-semibold text-gray-900 mb-2">
-                Your reports take hours — or days
+          <p className="text-gray-400 text-center max-w-xl mx-auto mb-12 text-lg">
+            You're not alone — every week, business leaders waste hours wrestling with data.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            <div className="bg-white/5 backdrop-blur-sm border border-gray-700/30 rounded-xl p-6 hover:bg-white/10 transition-colors">
+              <div className="text-3xl mb-3">😤</div>
+              <h3 className="text-lg font-bold text-white mb-2">
+                "Your reports take hours — or days"
               </h3>
-              <p className="text-center text-gray-600">
-                You spend hours every week copy-pasting data into slides that nobody reads carefully. 
+              <p className="text-gray-400 text-sm leading-relaxed">
+                You spend hours every week copy-pasting data into slides that nobody reads carefully.
                 That's time you could spend actually running your business.
               </p>
             </div>
-            
-            {/* Pain Card 2 */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col items-center">
-              <div className="text-3xl mb-4">📊</div>
-              <h3 className="font-semibold text-gray-900 mb-2">
-                Raw data means nothing to your leadership team
+            <div className="bg-white/5 backdrop-blur-sm border border-gray-700/30 rounded-xl p-6 hover:bg-white/10 transition-colors">
+              <div className="text-3xl mb-3">📊</div>
+              <h3 className="text-lg font-bold text-white mb-2">
+                "Raw data means nothing to leadership"
               </h3>
-              <p className="text-center text-gray-600">
-                A spreadsheet isn't a strategy. Your CEO needs to see what the numbers mean — 
+              <p className="text-gray-400 text-sm leading-relaxed">
+                A spreadsheet isn't a strategy. Your CEO needs to see what the numbers mean —
                 not 47 columns and a pivot table.
               </p>
             </div>
-            
-            {/* Pain Card 3 */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col items-center">
-              <div className="text-3xl mb-4">📎</div>
-              <h3 className="font-semibold text-gray-900 mb-2">
-                Your reports die in email attachments
+            <div className="bg-white/5 backdrop-blur-sm border border-gray-700/30 rounded-xl p-6 hover:bg-white/10 transition-colors">
+              <div className="text-3xl mb-3">📎</div>
+              <h3 className="text-lg font-bold text-white mb-2">
+                "Reports die in email attachments"
               </h3>
-              <p className="text-center text-gray-600">
-                You send a PDF, someone downloads it, someone else never opens it. 
+              <p className="text-gray-400 text-sm leading-relaxed">
+                You send a PDF, someone downloads it, someone else never opens it.
                 There's no single source of truth and no way to discuss the data together.
               </p>
             </div>
-            
-            {/* Pain Card 4 */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col items-center">
-              <div className="text-3xl mb-4">💸</div>
-              <h3 className="font-semibold text-gray-900 mb-2">
-                Analysts and consultants cost a fortune
+            <div className="bg-white/5 backdrop-blur-sm border border-gray-700/30 rounded-xl p-6 hover:bg-white/10 transition-colors">
+              <div className="text-3xl mb-3">💸</div>
+              <h3 className="text-lg font-bold text-white mb-2">
+                "Analysts cost a fortune"
               </h3>
-              <p className="text-center text-gray-600">
-                Hiring someone to build a monthly performance report costs £500–£2,000 per project. 
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Hiring someone to build a monthly performance report costs £500–£2,000 per project.
                 For most businesses, that's not sustainable every month.
               </p>
             </div>
@@ -144,473 +317,405 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* Section 5: How it works */}
-      <section className="pt-20 pb-24">
+      {/* ═══════════════════════════════ 5. HOW IT WORKS ═══════════════════════════════ */}
+      <section id="how-it-works" className="bg-white py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center mb-12">
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-gray-900 text-center mb-4">
             Three steps. Under two minutes.
           </h2>
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-            {/* Step 1 */}
-            <div className="flex flex-col items-center space-y-4">
-              <div className="flex items-center justify-center w-12 h-12 bg-blue-50 rounded-full">
-                <span className="text-blue-600 text-xl font-bold">1</span>
+          <p className="text-gray-500 text-center max-w-xl mx-auto mb-14 text-lg">
+            From raw document to executive report — no spreadsheets required.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-6">
+            {[
+              {
+                num: '01',
+                emoji: '📤',
+                title: 'Upload',
+                desc: 'Drop in any document — PDF, Excel, Word, CSV or PowerPoint. We support all major formats.',
+              },
+              {
+                num: '02',
+                emoji: '🤖',
+                title: 'Generate',
+                desc: 'Our AI reads your data, extracts the key metrics, and builds a professional executive report automatically.',
+              },
+              {
+                num: '03',
+                emoji: '🔗',
+                title: 'Share',
+                desc: 'Share a live link with your team. Export to PDF or PowerPoint. Ask the AI anything about your data.',
+              },
+            ].map((step) => (
+              <div key={step.num} className="text-center">
+                <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-50 rounded-full mb-4">
+                  <span className="text-blue-600 text-2xl font-bold">{step.num}</span>
+                </div>
+                <div className="text-4xl mb-3">{step.emoji}</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{step.title}</h3>
+                <p className="text-gray-500 leading-relaxed max-w-xs mx-auto">{step.desc}</p>
               </div>
-              <div className="flex items-center justify-center w-10 h-10 bg-blue-100 rounded-full">
-                {/* Upload icon placeholder */}
-                <span className="text-blue-600">📤</span>
-              </div>
-              <h3 className="font-semibold text-gray-900 text-center">
-                Upload
-              </h3>
-              <p className="text-center text-gray-600">
-                Drop in any document — PDF, Excel, Word, CSV or PowerPoint.
-              </p>
-            </div>
-            
-            {/* Step 2 */}
-            <div className="flex flex-col items-center space-y-4">
-              <div className="flex items-center justify-center w-12 h-12 bg-blue-50 rounded-full">
-                <span className="text-blue-600 text-xl font-bold">2</span>
-              </div>
-              <div className="flex items-center justify-center w-10 h-10 bg-blue-100 rounded-full">
-                {/* AI icon placeholder */}
-                <span className="text-blue-600">🤖</span>
-              </div>
-              <h3 className="font-semibold text-gray-900 text-center">
-                Generate
-              </h3>
-              <p className="text-center text-gray-600">
-                Our AI reads it, extracts the data, and builds your report automatically.
-              </p>
-            </div>
-            
-            {/* Step 3 */}
-            <div className="flex flex-col items-center space-y-4">
-              <div className="flex items-center justify-center w-12 h-12 bg-blue-50 rounded-full">
-                <span className="text-blue-600 text-xl font-bold">3</span>
-              </div>
-              <div className="flex items-center justify-center w-10 h-10 bg-blue-100 rounded-full">
-                {/* Share icon placeholder */}
-                <span className="text-blue-600">🔗</span>
-              </div>
-              <h3 className="font-semibold text-gray-900 text-center">
-                Share
-              </h3>
-              <p className="text-center text-gray-600">
-                Share a live link with your team. Export to PDF or PowerPoint. Ask the AI anything.
-              </p>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Section 6: Features (alternating rows) */}
-      <section className="pt-20 pb-24 bg-white">
+      {/* ═══════════════════════════════ 6. FEATURE ROWS ═══════════════════════════════ */}
+      <section id="features" className="bg-gray-50 py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Feature Row 1 */}
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-12 mb-16">
-            <div className="flex-1 space-y-4">
-              <h3 className="text-xl font-bold text-gray-900">
-                AI-generated charts and trends
-              </h3>
-              <p className="text-gray-600">
-                Automatically see where your numbers are heading. Line charts, bar charts, 
-                trend indicators — all generated from your data, zero manual work.
-              </p>
-            </div>
-            <div className="flex-1 lg:w-1/2">
-              <div className="aspect-w-16 aspect-h-9 bg-gray-100 rounded-lg overflow-hidden relative">
-                {/* Chart placeholder */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
-                  <div className="space-y-4">
-                    <div className="w-full h-8 bg-gray-300 rounded animate-pulse"></div>
-                    <div className="w-full h-16 bg-gray-300 rounded animate-pulse"></div>
-                    <div className="w-full h-16 bg-gray-300 rounded animate-pulse"></div>
-                  </div>
-                </div>
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-gray-900 text-center mb-4">
+            Everything you need to report with confidence
+          </h2>
+          <p className="text-gray-500 text-center max-w-xl mx-auto mb-14 text-lg">
+            Built for the way modern teams work — live, collaborative, and instant.
+          </p>
+
+          {/* Feature Row 1 — Live Sharing */}
+          <div className="flex flex-col lg:flex-row items-center gap-10 lg:gap-16 mb-20">
+            <div className="flex-1 text-center lg:text-left">
+              <div className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-4">
+                Live collaboration
               </div>
-            </div>
-          </div>
-          
-          {/* Feature Row 2 - reversed */}
-          <div className="flex flex-col lg:flex-row-reverse items-start lg:items-center gap-12 mb-16">
-            <div className="flex-1 space-y-4">
-              <h3 className="text-xl font-bold text-gray-900">
+              <h3 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-3">
                 Share a live link — your team joins instantly
               </h3>
-              <p className="text-gray-600">
-                Generate a shareable link and send it to anyone. They click it, enter their name and role, 
+              <p className="text-gray-500 leading-relaxed">
+                Generate a shareable link and send it to anyone. They click it, enter their name and role,
                 and the report is live for them — no login, no download. See who's viewing in real time.
               </p>
             </div>
-            <div className="flex-1 lg:w-1/2">
-              <div className="aspect-w-16 aspect-h-9 bg-gray-100 rounded-lg overflow-hidden relative">
-                {/* Sharing placeholder for shared report */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
-                  <div className="space-y-3">
-                    <div className="w-full h-8 bg-gray-300 rounded animate-pulse"></div>
-                    <div className="flex space-x-3">
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                    </div>
+            <div className="flex-1 w-full max-w-md lg:max-w-none">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-3 h-3 rounded-full bg-green-400" />
+                    <span className="text-sm font-semibold text-gray-700">getreportsync.com/shared/abc123</span>
                   </div>
+                  <button className="text-xs bg-gray-100 text-gray-500 px-3 py-1 rounded-md hover:bg-gray-200 transition-colors">
+                    Copy link
+                  </button>
+                </div>
+                {/* Viewer avatars */}
+                <div className="flex -space-x-2 mb-3">
+                  {['#3B82F6', '#10B981', '#F59E0B'].map((color, i) => (
+                    <div
+                      key={i}
+                      className="w-8 h-8 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-bold"
+                      style={{ backgroundColor: color }}
+                    >
+                      {['S', 'M', 'J'][i]}
+                    </div>
+                  ))}
+                  <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center text-gray-400 text-xs font-bold">
+                    +2
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4 text-xs text-gray-400">
+                  <span>● Sarah — viewing KPIs</span>
+                  <span>● Marcus — asking AI</span>
                 </div>
               </div>
             </div>
           </div>
-          
-          {/* Feature Row 3 */}
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-12 mb-16">
-            <div className="flex-1 space-y-4">
-              <h3 className="text-xl font-bold text-gray-900">
+
+          {/* Feature Row 2 — AI Bot (reversed) */}
+          <div className="flex flex-col lg:flex-row-reverse items-center gap-10 lg:gap-16 mb-20">
+            <div className="flex-1 text-center lg:text-left">
+              <div className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-4">
+                AI analyst
+              </div>
+              <h3 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-3">
                 Ask the AI anything about your data
               </h3>
-              <p className="text-gray-600">
-                Every report has a built-in AI analyst. Ask 'What was our worst month?' or 
-                'Summarise the key risks' and get an instant answer grounded in your data.
+              <p className="text-gray-500 leading-relaxed">
+                Every report has a built-in AI analyst. Ask 'What was our worst month?' or
+                'Summarise the key risks' and get an instant answer grounded in your data alone.
               </p>
             </div>
-            <div className="flex-1 lg:w-1/2">
-              <div className="aspect-w-16 aspect-h-9 bg-gray-100 rounded-lg overflow-hidden relative">
-                {/* Chat placeholder */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
-                  <div className="space-y-3">
-                    <div className="w-full h-8 bg-gray-300 rounded animate-pulse"></div>
-                    <div className="flex space-x-3">
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                    </div>
+            <div className="flex-1 w-full max-w-md lg:max-w-none">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-6">
+                <div className="flex items-center space-x-3 mb-4 pb-4 border-b border-gray-100">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                    <span className="text-blue-600 text-sm font-bold">AI</span>
                   </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700">Insight Bot</div>
+                    <div className="text-xs text-green-500">● Online</div>
+                  </div>
+                </div>
+                <div className="space-y-3 mb-4">
+                  <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 max-w-[80%]">
+                    What was our best performing product line this quarter?
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-sm text-gray-700 max-w-[85%] ml-auto">
+                    Based on your sales data, Product Line A is your top performer with £487K in revenue — a 23% increase over last quarter. The Growth segment saw the highest margin at 42%.
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Ask a question about your report…"
+                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 text-gray-400"
+                  />
+                  <button className="bg-blue-600 text-white text-sm px-4 py-2 rounded-lg">Send</button>
                 </div>
               </div>
             </div>
           </div>
-          
-          {/* Feature Row 4 - reversed */}
-          <div className="flex flex-col lg:flex-row-reverse items-start lg:items-center gap-12">
-            <div className="flex-1 space-y-4">
-              <h3 className="text-xl font-bold text-gray-900">
+
+          {/* Feature Row 3 — Export */}
+          <div className="flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
+            <div className="flex-1 text-center lg:text-left">
+              <div className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-4">
+                Export
+              </div>
+              <h3 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-3">
                 Export to PDF or PowerPoint in one click
               </h3>
-              <p className="text-gray-600">
-                Need to email it? Export to PDF. Need to present it? Export to PowerPoint 
-                with editable charts. Professional output, every time.
+              <p className="text-gray-500 leading-relaxed">
+                Need to email it? Export to PDF with professional formatting. Need to present it?
+                Export to PowerPoint with editable slides and charts. Perfect output, every time.
               </p>
             </div>
-            <div className="flex-1 lg:w-1/2">
-              <div className="aspect-w-16 aspect-h-9 bg-gray-100 rounded-lg overflow-hidden relative">
-                {/* Export placeholder */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
-                  <div className="space-y-3">
-                    <div className="w-full h-8 bg-gray-300 rounded animate-pulse"></div>
-                    <div className="flex space-x-3">
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                      <div className="h-6 w-6 bg-gray-300 rounded-full animate-pulse"></div>
-                    </div>
+            <div className="flex-1 w-full max-w-md lg:max-w-none">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-6">
+                <div className="text-sm font-semibold text-gray-700 mb-4">Export as…</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button className="flex flex-col items-center justify-center border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:bg-blue-50/50 transition-colors">
+                    <span className="text-2xl mb-1">📄</span>
+                    <span className="text-xs font-medium text-gray-700">PDF Report</span>
+                    <span className="text-[10px] text-gray-400 mt-0.5">A4, print-ready</span>
+                  </button>
+                  <button className="flex flex-col items-center justify-center border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:bg-blue-50/50 transition-colors">
+                    <span className="text-2xl mb-1">📊</span>
+                    <span className="text-xs font-medium text-gray-700">PowerPoint</span>
+                    <span className="text-[10px] text-gray-400 mt-0.5">Editable slides</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════ 7. TESTIMONIALS ═══════════════════════════════ */}
+      <section className="bg-white py-20 lg:py-28">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-gray-900 text-center mb-4">
+            What our users say
+          </h2>
+          <p className="text-gray-500 text-center max-w-xl mx-auto mb-14 text-lg">
+            Trusted by finance, ops, and executive teams across the UK.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                quote: "This replaced 4 hours of analyst work every single week. I upload our monthly sales data on Monday morning and the report is ready before my first coffee.",
+                initials: 'SK',
+                name: 'Sarah K.',
+                role: 'Operations Director',
+              },
+              {
+                quote: "I sent a shared link to my board before a meeting. They arrived having already read the report and asked the AI questions. Best meeting we've had in a year.",
+                initials: 'MT',
+                name: 'Marcus T.',
+                role: 'Managing Director',
+              },
+              {
+                quote: "As a consultant, being able to share a live report instead of emailing PDFs has been transformative. My clients think I've spent days on what takes minutes.",
+                initials: 'JR',
+                name: 'James R.',
+                role: 'Business Consultant',
+              },
+            ].map((t) => (
+              <div key={t.name} className="bg-gray-50 border border-gray-100 rounded-xl p-6">
+                <div className="mb-3">
+                  <Stars count={5} />
+                </div>
+                <p className="text-gray-700 leading-relaxed mb-5 italic">
+                  &ldquo;{t.quote}&rdquo;
+                </p>
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <span className="text-blue-600 text-sm font-bold">{t.initials}</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-900 text-sm">{t.name}</div>
+                    <div className="text-xs text-gray-500">{t.role}</div>
                   </div>
                 </div>
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Section 7: Testimonials */}
-      <section className="pt-20 pb-24 bg-gray-50">
+      {/* ═══════════════════════════════ 8. PRICING ═══════════════════════════════ */}
+      <section id="pricing" className="bg-gray-50 py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center mb-12">
-            What our users say
-          </h2>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Testimonial 1 */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <p className="italic text-gray-700 mb-4">
-                "This replaced 4 hours of analyst work every single week. I upload our monthly 
-                sales data on Monday morning and the report is ready before my first coffee."
-              </p>
-              <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600">SK</span>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-gray-900">Sarah K.</h4>
-                  <p className="text-sm text-gray-500">Operations Director</p>
-                </div>
-              </div>
-            </div>
-            
-            {/* Testimonial 2 */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <p className="italic text-gray-700 mb-4">
-                "I sent a shared link to my board before a meeting. They arrived having already 
-                read the report and asked the AI questions. Best meeting we've had in a year."
-              </p>
-              <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600">MT</span>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-gray-900">Marcus T.</h4>
-                  <p className="text-sm text-gray-500">Managing Director</p>
-                </div>
-              </div>
-            </div>
-            
-            {/* Testimonial 3 */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <p className="italic text-gray-700 mb-4">
-                "As a consultant, the white-label feature alone is worth the subscription. 
-                My clients think I've spent days on reports I generate in minutes."
-              </p>
-              <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600">JR</span>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-gray-900">James R.</h4>
-                  <p className="text-sm text-gray-500">Business Consultant</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 8: Pricing */}
-      <section className="pt-20 pb-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center mb-12">
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-gray-900 text-center mb-4">
             Simple pricing. Cancel any time.
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Starter Plan */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">
-                Starter
-              </h3>
-              <p className="text-2xl font-bold text-blue-600 mb-4">
-                £29/mo
-              </p>
-              <ul className="space-y-3 text-gray-600">
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Unlimited reports</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>AI-powered insights</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>PDF & PowerPoint export</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Shareable links</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Email support</span>
-                </li>
+          <p className="text-gray-500 text-center max-w-xl mx-auto mb-14 text-lg">
+            Start your 7-day free trial — no credit card needed.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            {/* Starter */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col">
+              <h3 className="text-xl font-bold text-gray-900 mb-1">Starter</h3>
+              <p className="text-sm text-gray-500 mb-5">For individuals getting started</p>
+              <div className="mb-6">
+                <span className="text-3xl font-extrabold text-gray-900">£29</span>
+                <span className="text-gray-500 text-sm">/month</span>
+              </div>
+              <ul className="space-y-3 text-sm text-gray-600 flex-1 mb-8">
+                {['Unlimited reports', 'AI-powered insights', 'PDF & PowerPoint export', 'Shareable links', 'Email support'].map(
+                  (f) => (
+                    <li key={f} className="flex items-start space-x-2">
+                      <span className="text-blue-600 flex-shrink-0">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  )
+                )}
               </ul>
-              <a href="#" className="mt-6 block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2 rounded-md transition-colors">
-                Start Free Trial
-              </a>
+              <Link
+                to="/signup"
+                className="block w-full text-center border border-gray-300 hover:border-blue-500 text-gray-700 hover:text-blue-600 font-semibold px-5 py-3 rounded-lg transition-colors"
+              >
+                Start free trial
+              </Link>
             </div>
-            
-            {/* Pro Plan - Highlighted */}
-            <div className="border border-blue-600 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center justify-between">
-                <span>Pro</span>
-                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded">Most Popular</span>
-              </h3>
-              <p className="text-2xl font-bold text-blue-600 mb-4">
-                £49/mo
-              </p>
-              <ul className="space-y-3 text-gray-600">
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Everything in Starter</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Custom branding</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Team collaboration</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Priority support</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Advanced analytics</span>
-                </li>
+
+            {/* Pro — highlighted */}
+            <div className="bg-white border-2 border-blue-600 rounded-xl p-6 flex flex-col relative shadow-lg shadow-blue-100">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-bold px-4 py-1 rounded-full">
+                Most Popular
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-1">Pro</h3>
+              <p className="text-sm text-gray-500 mb-5">For teams who need more</p>
+              <div className="mb-6">
+                <span className="text-3xl font-extrabold text-gray-900">£49</span>
+                <span className="text-gray-500 text-sm">/month</span>
+              </div>
+              <ul className="space-y-3 text-sm text-gray-600 flex-1 mb-8">
+                {['Everything in Starter', 'Custom branding', 'Team collaboration', 'Priority support', 'Advanced analytics'].map(
+                  (f) => (
+                    <li key={f} className="flex items-start space-x-2">
+                      <span className="text-blue-600 flex-shrink-0">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  )
+                )}
               </ul>
-              <a href="#" className="mt-6 block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2 rounded-md transition-colors">
-                Start Free Trial
-              </a>
+              <Link
+                to="/signup"
+                className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-3 rounded-lg transition-colors shadow-md"
+              >
+                Start free trial
+              </Link>
             </div>
-            
-            {/* Agency Plan */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">
-                Agency
-              </h3>
-              <p className="text-2xl font-bold text-blue-600 mb-4">
-                £99/mo
-              </p>
-              <ul className="space-y-3 text-gray-600">
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Everything in Pro</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Unlimited team members</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>White-label reports</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>API access</span>
-                </li>
-                <li className="flex items-start">
-                  <span className="flex-shrink-0 text-blue-600">✓</span>
-                  <span>Dedicated account manager</span>
-                </li>
+
+            {/* Agency */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 flex flex-col">
+              <h3 className="text-xl font-bold text-gray-900 mb-1">Agency</h3>
+              <p className="text-sm text-gray-500 mb-5">For agencies & power users</p>
+              <div className="mb-6">
+                <span className="text-3xl font-extrabold text-gray-900">£99</span>
+                <span className="text-gray-500 text-sm">/month</span>
+              </div>
+              <ul className="space-y-3 text-sm text-gray-600 flex-1 mb-8">
+                {['Everything in Pro', 'Unlimited team members', 'White-label reports', 'API access', 'Dedicated account manager'].map(
+                  (f) => (
+                    <li key={f} className="flex items-start space-x-2">
+                      <span className="text-blue-600 flex-shrink-0">✓</span>
+                      <span>{f}</span>
+                    </li>
+                  )
+                )}
               </ul>
-              <a href="#" className="mt-6 block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2 rounded-md transition-colors">
-                Start Free Trial
-              </a>
+              <Link
+                to="/signup"
+                className="block w-full text-center border border-gray-300 hover:border-blue-500 text-gray-700 hover:text-blue-600 font-semibold px-5 py-3 rounded-lg transition-colors"
+              >
+                Start free trial
+              </Link>
             </div>
           </div>
-          <p className="mt-8 text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-gray-500 mt-8">
             All plans include a 7-day free trial. No credit card required to start.
           </p>
         </div>
       </section>
 
-      {/* Section 9: FAQ (accordion) */}
-      <section className="pt-20 pb-24 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold text-center mb-12">
+      {/* ═══════════════════════════════ 9. FAQ ═══════════════════════════════ */}
+      <section id="faq" className="bg-white py-20 lg:py-28">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl lg:text-4xl font-extrabold text-gray-900 text-center mb-4">
             Frequently asked questions
           </h2>
-          <div className="space-y-4">
-            {/* FAQ Item 1 */}
-            <div className="border border-gray-200 rounded-lg">
-              <div className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50" onClick={() => {}}>
-                <h3 className="font-semibold text-gray-900">
-                  What types of documents can I upload?
-                </h3>
-                <span className="text-gray-500">▼</span>
-              </div>
-              <div className="hidden p-5 text-gray-600">
-                PDF, Excel (XLSX/XLS), Word (DOCX), CSV, and PowerPoint (PPTX). Up to 50MB per file.
-              </div>
-            </div>
-            
-            {/* FAQ Item 2 */}
-            <div className="border border-gray-200 rounded-lg mt-2">
-              <div className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50" onClick={() => {}}>
-                <h3 className="font-semibold text-gray-900">
-                  Is my data secure?
-                </h3>
-                <span className="text-gray-500">▼</span>
-              </div>
-              <div className="hidden p-5 text-gray-600">
-                Yes. Your documents are encrypted at rest and in transit. They are never used to train any AI model. You can delete your data at any time from your account settings.
-              </div>
-            </div>
-            
-            {/* FAQ Item 3 */}
-            <div className="border border-gray-200 rounded-lg mt-2">
-              <div className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50" onClick={() => {}}>
-                <h3 className="font-semibold text-gray-900">
-                  What happens after the free trial?
-                </h3>
-                <span className="text-gray-500">▼</span>
-              </div>
-              <div className="hidden p-5 text-gray-600">
-                After 7 days you'll be prompted to choose a plan. If you don't upgrade, your account pauses and you can still access your existing reports.
-              </div>
-            </div>
-            
-            {/* FAQ Item 4 */}
-            <div className="border border-gray-200 rounded-lg mt-2">
-              <div className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50" onClick={() => {}}>
-                <h3 className="font-semibold text-gray-900">
-                  Can I share reports with people who don't have an account?
-                </h3>
-                <span className="text-gray-500">▼</span>
-              </div>
-              <div className="hidden p-5 text-gray-600">
-                Yes. Anyone with your shareable link can view the report — no account needed. You control whether the link is active and when it expires.
-              </div>
-            </div>
-            
-            {/* FAQ Item 5 */}
-            <div className="border border-gray-200 rounded-lg mt-2">
-              <div className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50" onClick={() => {}}>
-                <h3 className="font-semibold text-gray-900">
-                  What AI model powers this?
-                </h3>
-                <span className="text-gray-500">▼</span>
-              </div>
-              <div className="hidden p-5 text-gray-600">
-                Reports are generated using DeepSeek V4, one of the most advanced AI models available, fine-tuned for business document analysis.
-              </div>
-            </div>
+          <p className="text-gray-500 text-center max-w-xl mx-auto mb-12 text-lg">
+            Everything you need to know about ReportSync.
+          </p>
+          <div className="border-t border-gray-200">
+            {faqs.map((faq, i) => (
+              <FaqItem
+                key={i}
+                question={faq.q}
+                answer={faq.a}
+                open={faqOpen === i}
+                onToggle={() => setFaqOpen(faqOpen === i ? null : i)}
+              />
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Section 10: Final CTA */}
-      <section className="pt-20 pb-24 bg-gray-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl font-bold mb-6">
-            Your next report is 2 minutes away.
+      {/* ═══════════════════════════════ 10. FINAL CTA ═══════════════════════════════ */}
+      <section className="bg-[#0A0F1E] py-20 lg:py-28">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 className="text-3xl lg:text-5xl font-extrabold text-white leading-tight mb-6">
+            Stop building reports by hand.<br />
+            <span className="text-blue-400">Let ReportSync handle it.</span>
           </h2>
-          <p className="text-lg text-gray-300 mb-8">
-            Join 500+ businesses saving hours every week.
+          <p className="text-gray-300 text-lg max-w-xl mx-auto mb-8">
+            Upload your first document today and see your executive report in under 2 minutes.
+            Free for 7 days — no credit card required.
           </p>
-          <a href="#" className="bg-white hover:bg-gray-100 text-blue-600 font-medium px-6 py-3 rounded-md transition-colors inline-block">
-            Start Free Trial — No card needed
-          </a>
+          <Link
+            to="/signup"
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold px-10 py-4 rounded-lg text-lg transition-all hover:shadow-xl hover:shadow-blue-600/25"
+          >
+            Start free for 7 days
+          </Link>
+          <p className="text-sm text-gray-500 mt-4">
+            ✓ No credit card required · Cancel anytime
+          </p>
         </div>
       </section>
 
-      {/* Section 11: Footer */}
-      <footer className="pt-12 pb-8 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center gap-6">
-          <div className="flex items-center space-x-3">
-            <span className="text-2xl font-bold text-blue-600">ReportSync</span>
-            <span className="text-blue-600">⟳</span>
+      {/* ═══════════════════════════════ 11. FOOTER ═══════════════════════════════ */}
+      <footer className="bg-[#0A0F1E] border-t border-gray-800 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="flex items-center space-x-2"
+            >
+              <span className="text-xl font-bold text-white">ReportSync</span>
+              <span className="text-blue-400">⟳</span>
+            </button>
+            <div className="flex items-center space-x-6 text-sm text-gray-400">
+              <Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+              <Link to="/terms" className="hover:text-white transition-colors">Terms</Link>
+              <Link to="/contact" className="hover:text-white transition-colors">Contact</Link>
+            </div>
+            <p className="text-xs text-gray-500">
+              &copy; {new Date().getFullYear()} ReportSync. All rights reserved.
+            </p>
           </div>
-          <p className="text-sm text-gray-600">
-            Turn any document into an executive report.
-          </p>
-          <div className="flex space-x-4 text-sm text-gray-500">
-            <a href="#" className="hover:text-gray-900 transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-gray-900 transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-gray-900 transition-colors">Contact</a>
-          </div>
-          <p className="text-xs text-gray-400">
-            © 2024 GetReportSync · getreportsync.com
-          </p>
         </div>
       </footer>
     </div>
-  );
-};
-
-export default Landing;
+  )
+}
