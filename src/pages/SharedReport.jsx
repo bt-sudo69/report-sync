@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { supabase } from '../../lib/supabaseClient' // Adjust path as needed
-import ReportViewer from '../../components/ReportViewer' // Assuming we have a view-only report viewer
-import { useAuth } from '../../context/AuthContext' // Adjust path as needed
+import { createClient } from '@supabase/supabase-js'
+import { v4 as uuidv4 } from 'uuid'
+
+// Inline Supabase client using VITE_ env vars
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null
 
 const SharedReport = () => {
   const { token } = useParams()
@@ -26,6 +32,12 @@ const SharedReport = () => {
         return
       }
 
+      if (!supabase) {
+        setError('Application configuration error')
+        setIsLoading(false)
+        return
+      }
+
       try {
         setIsLoading(true)
         setError(null)
@@ -33,7 +45,7 @@ const SharedReport = () => {
         // Fetch report by share token
         const { data, error } = await supabase
           .from('reports')
-          .select('id, title, content, user_id, share_active, share_expires_at')
+          .select('id, title, document_type, kpis, charts, executive_summary, key_findings, time_period, user_id, share_active, share_expires_at')
           .eq('share_token', token)
           .single()
 
@@ -139,7 +151,7 @@ const SharedReport = () => {
           table: 'viewer_sessions',
           filter: `report_id=eq.${report.id}`
         },
-        (payload) => {
+        () => {
           // Refresh the active viewers list
           updateActiveViewers()
         }
@@ -170,7 +182,7 @@ const SharedReport = () => {
       if (error) throw error
 
       // Format the data for display
-      const formatted = data.map(viewer => ({
+      const formatted = (data || []).map(viewer => ({
         ...viewer,
         initials: viewer.viewer_name
           .split(' ')
@@ -218,25 +230,107 @@ const SharedReport = () => {
       if (presenceChannelRef.current) {
         supabase.removeChannel(presenceChannelRef.current)
       }
-
-      // Optionally, we could remove the viewer session here, but it's better to let it expire
-      // based on last_seen for robustness against accidental refreshes
     }
   }, [])
 
+  // Simple inline ReportViewer component
+  const ReportViewer = ({ reportData }) => {
+    if (!reportData) return null
+
+    const kpis = Array.isArray(reportData.kpis) ? reportData.kpis : []
+    const keyFindings = Array.isArray(reportData.key_findings) ? reportData.key_findings : []
+    const charts = Array.isArray(reportData.charts) ? reportData.charts : []
+
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Title */}
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">{reportData.title}</h1>
+        <p className="text-sm text-gray-500 mb-6">
+          {reportData.document_type} report  ·  {reportData.time_period}
+        </p>
+
+        {/* Executive Summary */}
+        {reportData.executive_summary && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-3">Executive Summary</h2>
+            <p className="text-gray-700 leading-relaxed whitespace-pre-line">
+              {reportData.executive_summary}
+            </p>
+          </div>
+        )}
+
+        {/* KPIs */}
+        {kpis.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Metrics</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {kpis.map((kpi, i) => (
+                <div key={i} className="border border-gray-200 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-blue-600">{kpi.value || '—'}</p>
+                  <p className="text-sm text-gray-600 mt-1">{kpi.label}</p>
+                  {kpi.unit && <p className="text-xs text-gray-400">{kpi.unit}</p>}
+                  {kpi.change_pct !== undefined && (
+                    <p className={`text-xs font-medium mt-1 ${kpi.change_pct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {kpi.change_pct > 0 ? '+' : ''}{kpi.change_pct}%
+                    </p>
+                  )}
+                  {kpi.trend && (
+                    <p className="text-xs text-gray-400 mt-1">{kpi.trend}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Charts */}
+        {charts.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Charts</h2>
+            {charts.map((chart, i) => (
+              <div key={i} className="mb-4 p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm font-medium text-gray-700 mb-2">{chart.title || chart.type}</p>
+                <div className="h-40 bg-gray-200 rounded flex items-center justify-center text-gray-500 text-sm">
+                  {chart.type} chart ({chart.title || 'untitled'})
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Key Findings */}
+        {keyFindings.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Findings</h2>
+            <ul className="space-y-3">
+              {keyFindings.map((finding, i) => (
+                <li key={i} className="flex items-start">
+                  <span className="flex-shrink-0 h-5 w-5 bg-blue-100 rounded-full flex items-center justify-center mr-3 mt-0.5">
+                    <span className="text-blue-600 text-xs font-bold">{i + 1}</span>
+                  </span>
+                  <span className="text-gray-700">{finding}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // If report hasn't loaded yet, show loading state
-  if (isLoading) {
+  if (isLoading && !report) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary">
-          Loading shared report...
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4">
         </div>
+        <p className="text-gray-500">Loading shared report...</p>
       </div>
     )
   }
 
   // If there was an error loading the report
-  if (error) {
+  if (error && !report) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
         <div className="text-center">
@@ -367,11 +461,7 @@ const SharedReport = () => {
       {/* Report Viewer - read-only version */}
       <div className="flex-1 overflow-hidden">
         <div className="h-full w-full overflow-y-auto">
-          <ReportViewer 
-            reportId={report.id} 
-            isViewOnly={true} 
-            showActions={false} 
-          />
+          <ReportViewer reportData={report} />
         </div>
       </div>
 
@@ -392,22 +482,21 @@ const SharedReport = () => {
             </div>
             
             <div className="text-center sm:text-right mt-4 sm:mt-0">
-              <a 
-                href="#" 
-                onClick={(e) => {
-                  e.preventDefault()
-                  navigator.clipboard.writeText(window.location.href)
-                  // Show temporary feedback
-                  const originalText = e.target.innerText
-                  e.target.innerText = 'Link copied!'
-                  setTimeout(() => {
-                    e.target.innerText = originalText
-                  }, 2000)
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href).then(() => {
+                    const btn = document.getElementById('copy-share-btn')
+                    if (btn) {
+                      btn.textContent = 'Link copied!'
+                      setTimeout(() => { btn.textContent = 'Share this view' }, 2000)
+                    }
+                  })
                 }}
-                className="text-sm text-gray-600 hover:text-gray-900"
+                id="copy-share-btn"
+                className="text-sm text-gray-600 hover:text-gray-900 cursor-pointer bg-transparent border-0"
               >
                 Share this view
-              </a>
+              </button>
             </div>
           </div>
         </div>
