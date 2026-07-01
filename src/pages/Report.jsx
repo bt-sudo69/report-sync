@@ -395,10 +395,10 @@ export default function Report() {
       // Update status and re-trigger the actual pipeline
       await supabase
         .from('reports')
-        .update({ status: 'processing', error_message: null, updated_at: new Date().toISOString() })
+        .update({ status: 'processing', updated_at: new Date().toISOString() })
         .eq('id', id)
 
-      setReport((prev) => ({ ...prev, status: 'processing', error_message: null }))
+      setReport((prev) => ({ ...prev, status: 'processing', extracted_data: null }))
       setPolling(true)
 
       // Re-trigger the pipeline (this calls /api/process-report which calls /api/run-pipeline)
@@ -452,8 +452,7 @@ export default function Report() {
             Processing Failed
           </h2>
           <p className="text-sm text-gray-500 mb-8">
-            {report?.error_message ||
-              report?.extracted_data?.error ||
+            {report?.extracted_data?.error ||
               'Something went wrong while processing your document. Please try again.'}
           </p>
           <button

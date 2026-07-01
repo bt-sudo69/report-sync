@@ -142,7 +142,7 @@ export function pollReportStatus(reportId, onComplete, onError) {
     if (data.status === 'complete') {
       onComplete?.(data)
     } else if (data.status === 'error') {
-      onError?.(data.error_message || data.extracted_data?.error || 'Processing failed. Please try again.')
+      onError?.(data.extracted_data?.error || 'Processing failed. Please try again.')
     } else {
       setTimeout(poll, 3000)
     }
