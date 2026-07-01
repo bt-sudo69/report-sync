@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
 // Initialize Supabase client with service role key for backend operations
 const supabase = createClient(
@@ -6,8 +7,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
+// Colours
+const BLUE = rgb(37 / 255, 99 / 255, 235 / 255)   // #2563EB
+const DARK = rgb(0.11, 0.11, 0.11)                   // #1C1C1C
+const GRAY = rgb(0.42, 0.42, 0.42)                   // #6B7280
+const LIGHT_GRAY = rgb(0.9, 0.9, 0.9)                // #E5E7EB
+const WHITE = rgb(1, 1, 1)
+
 export default async function handler(req, res) {
-  // Only allow POST requests
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     return res.status(405).end('Method Not Allowed')
@@ -16,14 +23,11 @@ export default async function handler(req, res) {
   try {
     const { reportId, userId } = req.body
 
-    // Validate required fields
     if (!reportId || !userId) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: reportId and userId' 
-      })
+      return res.status(400).json({ error: 'Missing required fields: reportId and userId' })
     }
 
-    // Verify the report belongs to the user (security check)
+    // Fetch report data
     const { data: report, error: reportError } = await supabase
       .from('reports')
       .select('id, user_id, title, kpis, executive_summary, extracted_data')
@@ -32,176 +36,269 @@ export default async function handler(req, res) {
       .single()
 
     if (reportError) {
-      console.error('[export-pdf] Supabase query error:', reportError)
-      return res.status(403).json({ 
-        error: 'Report not found: ' + reportError.message
-      })
+      return res.status(403).json({ error: 'Report not found: ' + reportError.message })
     }
     if (!report) {
-      return res.status(403).json({ 
-        error: 'Report not found or access denied'
-      })
+      return res.status(403).json({ error: 'Report not found or access denied' })
     }
 
-    // Extract nested fields from extracted_data JSONB
     const extracted = report.extracted_data || {}
     const key_findings = extracted.key_findings || []
     const time_period = extracted.time_period || ''
     const document_type = extracted.document_type || ''
+    const kpis = Array.isArray(report.kpis) ? report.kpis : []
+    const execSummary = report.executive_summary || ''
 
-    const kpis = report.kpis || []
+    // ── Create PDF ──
+    const pdfDoc = await PDFDocument.create()
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+    
+    const pageWidth = 595.28  // A4 width in points
+    const pageHeight = 841.89 // A4 height in points
+    const margin = 56         // ~2cm margin
 
-    // Build KPI cards HTML
-    const kpiCards = Array.isArray(kpis) && kpis.length > 0
-      ? kpis.map(kpi => {
-          const changeHtml = kpi.change_pct !== undefined
-            ? `<div class="kpi-change" style="color:${kpi.change_pct > 0 ? '#10B981' : '#EF4444'}">${kpi.change_pct > 0 ? '+' : ''}${kpi.change_pct}%</div>`
-            : ''
-          return `
-            <div class="kpi">
-              <div class="kpi-value">${kpi.value || 'N/A'}</div>
-              <div class="kpi-label">${kpi.label || 'Metric'}</div>
-              ${kpi.unit ? `<div class="kpi-unit">${kpi.unit}</div>` : ''}
-              ${changeHtml}
-            </div>`
-        }).join('')
-      : '<p style="text-align:center;color:#6b7280;">No KPIs available.</p>'
+    let page = pdfDoc.addPage([pageWidth, pageHeight])
+    let y = pageHeight - margin
 
-    // Build key findings HTML
-    const findingsHtml = Array.isArray(key_findings) && key_findings.length > 0
-      ? key_findings.map(f => `<li>${f}</li>`).join('')
-      : '<p style="text-align:center;color:#6b7280;">No key findings available.</p>'
+    // --- Helper to add text and track position ---
+    function addLine(text, size = 11, color = DARK, bold = false, x = margin, indent = 0) {
+      const f = bold ? fontBold : font
+      const w = page.getWidth() - 2 * margin - indent
+      const words = text.split(' ')
+      let line = ''
+      for (const word of words) {
+        const test = line ? line + ' ' + word : word
+        if (f.widthOfTextAtSize(test, size) > w) {
+          page.drawText(line, { x: x + indent, y, size, font: f, color })
+          y -= size * 1.45
+          line = word
+        } else {
+          line = test
+        }
+      }
+      if (line) {
+        page.drawText(line, { x: x + indent, y, size, font: f, color })
+        y -= size * 1.45
+      }
+    }
 
-    // Return an HTML page with print styles — browser's native print saves as PDF
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>${report.title} — PDF Export</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: #1f2937;
-      line-height: 1.6;
-      padding: 2cm;
-      max-width: 21cm;
+    function addDivider(yPos) {
+      page.drawLine({
+        start: { x: margin, y: yPos },
+        end: { x: pageWidth - margin, y: yPos },
+        thickness: 1.5,
+        color: BLUE,
+      })
     }
-    @page {
-      size: A4;
-      margin: 1.5cm;
-    }
-    @media print {
-      body { padding: 0; }
-      .no-print { display: none !important; }
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 2rem;
-      border-bottom: 2px solid #2563eb;
-      padding-bottom: 1rem;
-    }
-    .title {
-      font-size: 1.8rem;
-      font-weight: bold;
-      color: #1f2937;
-      margin-bottom: 0.5rem;
-    }
-    .meta { color: #6b7280; font-size: 0.9rem; }
-    .section { margin-bottom: 2rem; }
-    .section-title {
-      font-size: 1.4rem;
-      font-weight: 600;
-      color: #1f2937;
-      margin-bottom: 1rem;
-      border-left: 4px solid #2563eb;
-      padding-left: 0.75rem;
-    }
-    .kpi-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      margin-top: 1rem;
-    }
-    .kpi {
-      flex: 1 1 180px;
-      border: 1px solid #e5e7eb;
-      border-radius: 0.5rem;
-      padding: 1.25rem;
-      text-align: center;
-    }
-    .kpi-value {
-      font-size: 1.6rem;
-      font-weight: bold;
-      color: #2563eb;
-      display: block;
-      margin-bottom: 0.25rem;
-    }
-    .kpi-label {
-      font-size: 0.85rem;
-      color: #6b7280;
-    }
-    .kpi-unit {
-      font-size: 0.75rem;
-      color: #9ca3af;
-      margin-top: 0.25rem;
-    }
-    .kpi-change {
-      font-size: 0.8rem;
-      font-weight: 600;
-      margin-top: 0.25rem;
-    }
-    .findings-list {
-      margin-top: 1rem;
-      padding-left: 1.5rem;
-    }
-    .findings-list li {
-      margin-bottom: 0.5rem;
-      font-size: 0.95rem;
-    }
-    .exec-summary {
-      font-size: 1rem;
-      line-height: 1.7;
-      white-space: pre-line;
-    }
-  </style>
-</head>
-<body onload="setTimeout(()=>window.print(),300)">
-  <div class="header">
-    <div class="title">${report.title}</div>
-    <div class="meta">Report type: ${document_type} | Period: ${time_period}</div>
-  </div>
 
-  <div class="section">
-    <h2 class="section-title">Executive Summary</h2>
-    <div class="exec-summary">${report.executive_summary || 'No executive summary available.'}</div>
-  </div>
+    // ══════ PAGE 1: HEADER ══════
+    // Blue accent bar at top
+    page.drawRectangle({
+      x: 0, y: pageHeight - 6,
+      width: pageWidth, height: 6,
+      color: BLUE,
+    })
 
-  <div class="section">
-    <h2 class="section-title">Key Metrics</h2>
-    <div class="kpi-grid">${kpiCards}</div>
-  </div>
+    y -= 30
+    // Title
+    const titleSize = report.title.length > 40 ? 18 : 22
+    page.drawText(report.title || 'Report', {
+      x: margin, y, size: titleSize, font: fontBold, color: DARK,
+    })
+    y -= titleSize * 1.5
 
-  <div class="section">
-    <h2 class="section-title">Key Findings</h2>
-    <ul class="findings-list">${findingsHtml}</ul>
-  </div>
+    // Meta
+    const metaText = [document_type, time_period].filter(Boolean).join(' · ')
+    if (metaText) {
+      page.drawText(metaText, {
+        x: margin, y, size: 10, font, color: GRAY,
+      })
+      y -= 20
+    }
 
-  <div class="no-print" style="position:fixed;bottom:20px;right:20px;z-index:999;">
-    <p style="font-size:0.8rem;color:#6b7280;margin-bottom:8px;">Save as PDF using your browser's print dialog (Ctrl+P / Cmd+P)</p>
-    <button onclick="window.print()" style="background:#2563eb;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:0.9rem;">Save as PDF</button>
-  </div>
+    // Generated date
+    const dateStr = new Date().toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'long', year: 'numeric'
+    })
+    page.drawText(`Generated by GetReportSync · ${dateStr}`, {
+      x: margin, y, size: 9, font, color: GRAY,
+    })
+    y -= 30
 
-  <script>(function(){if(window.location.search.includes('?download')){window.print()}})()</script>
-</body>
-</html>`
+    addDivider(y)
+    y -= 25
 
-    // Upload the HTML to Supabase Storage as PDF-ready page
-    const filePath = `${userId}/report-${reportId}.pdf.html`
+    // ══════ EXECUTIVE SUMMARY ══════
+    page.drawText('Executive Summary', {
+      x: margin, y, size: 14, font: fontBold, color: BLUE,
+    })
+    y -= 22
+
+    if (execSummary) {
+      addLine(execSummary, 10.5, DARK)
+    } else {
+      addLine('No executive summary available.', 10.5, GRAY)
+    }
+    y -= 10
+
+    // ══════ KEY METRICS ══════
+    // Check if we need a new page
+    if (y < 200) {
+      page = pdfDoc.addPage([pageWidth, pageHeight])
+      y = pageHeight - margin
+    }
+
+    page.drawText('Key Metrics', {
+      x: margin, y, size: 14, font: fontBold, color: BLUE,
+    })
+    y -= 22
+
+    if (kpis.length > 0) {
+      // Draw KPI cards in a 2-column grid
+      const cardW = (pageWidth - 3 * margin) / 2
+      const cardH = 70
+      const cols = 2
+
+      for (let i = 0; i < kpis.length; i++) {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        const cx = margin + col * (cardW + margin)
+        const cy = y - row * (cardH + 15)
+
+        // Need space — add page
+        if (cy - cardH < margin + 40) {
+          page = pdfDoc.addPage([pageWidth, pageHeight])
+          y = pageHeight - margin - 40
+          continue
+        }
+
+        // Card background
+        page.drawRectangle({
+          x: cx, y: cy - cardH,
+          width: cardW, height: cardH,
+          color: LIGHT_GRAY,
+          borderColor: rgb(0.93, 0.93, 0.93),
+          borderWidth: 1,
+        })
+
+        // KPI value
+        const val = kpis[i].value || 'N/A'
+        const valSize = val.length > 8 ? 18 : 24
+        page.drawText(val, {
+          x: cx + 12, y: cy - 24,
+          size: valSize, font: fontBold, color: BLUE,
+        })
+
+        // KPI label
+        page.drawText(kpis[i].label || 'Metric', {
+          x: cx + 12, y: cy - 50,
+          size: 10, font, color: GRAY,
+        })
+
+        // Change percentage
+        if (kpis[i].change_pct != null) {
+          const pct = kpis[i].change_pct
+          const pctStr = `${pct > 0 ? '+' : ''}${pct}%`
+          const pctColor = pct >= 0 ? rgb(0.06, 0.67, 0.18) : rgb(0.93, 0.27, 0.27)
+          page.drawText(pctStr, {
+            x: cx + cardW - 50, y: cy - 24,
+            size: 10, font: fontBold, color: pctColor,
+          })
+        }
+      }
+
+      y = y - Math.ceil(kpis.length / cols) * (cardH + 15) - 15
+    } else {
+      addLine('No KPIs available.', 10.5, GRAY)
+    }
+
+    y -= 10
+
+    // ══════ KEY FINDINGS ══════
+    if (key_findings.length > 0) {
+      if (y < 120) {
+        page = pdfDoc.addPage([pageWidth, pageHeight])
+        y = pageHeight - margin
+      }
+
+      addDivider(y)
+      y -= 25
+
+      page.drawText('Key Findings', {
+        x: margin, y, size: 14, font: fontBold, color: BLUE,
+      })
+      y -= 22
+
+      for (const finding of key_findings) {
+        if (y < 40) {
+          page = pdfDoc.addPage([pageWidth, pageHeight])
+          y = pageHeight - margin
+        }
+
+        // Bullet dot
+        page.drawCircle({
+          x: margin + 4, y: y - 5,
+          size: 3,
+          color: BLUE,
+        })
+
+        // Finding text
+        const maxW = pageWidth - 2 * margin - 20
+        const findingSize = 10
+        const words = finding.split(' ')
+        let line = ''
+        for (const word of words) {
+          const test = line ? line + ' ' + word : word
+          if (font.widthOfTextAtSize(test, findingSize) > maxW) {
+            page.drawText(line, {
+              x: margin + 16, y, size: findingSize, font, color: DARK,
+            })
+            y -= findingSize * 1.5
+            line = word
+          } else {
+            line = test
+          }
+        }
+        if (line) {
+          page.drawText(line, {
+            x: margin + 16, y, size: findingSize, font, color: DARK,
+          })
+          y -= findingSize * 1.5
+        }
+        y -= 6
+      }
+    }
+
+    // ── Footer on every page ──
+    const pages = pdfDoc.getPages()
+    for (const p of pages) {
+      const pw = p.getWidth()
+      p.drawLine({
+        start: { x: margin, y: 40 },
+        end: { x: pw - margin, y: 40 },
+        thickness: 0.5,
+        color: GRAY,
+      })
+      p.drawText('GetReportSync · Confidential', {
+        x: margin, y: 25,
+        size: 8, font, color: GRAY,
+      })
+      p.drawText(`Page ${pages.indexOf(p) + 1} of ${pages.length}`, {
+        x: pw - margin - 80, y: 25,
+        size: 8, font, color: GRAY,
+      })
+    }
+
+    // ── Serialize PDF ──
+    const pdfBytes = await pdfDoc.save()
+
+    // Upload to Supabase Storage
+    const filePath = `${userId}/report-${reportId}.pdf`
     const { error: uploadError } = await supabase.storage
       .from('exports')
-      .upload(filePath, html, {
-        contentType: 'text/html',
+      .upload(filePath, pdfBytes, {
+        contentType: 'application/pdf',
         upsert: true
       })
 
