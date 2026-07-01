@@ -62,10 +62,15 @@ export default async function handler(req, res) {
     let y = pageHeight - margin
 
     // --- Helper to add text and track position ---
+    function sanitize(t) {
+      // Remove characters that WinAnsi can't encode (newlines, special chars)
+      return String(t).replace(/[\n\r\t]+/g, ' ').replace(/[^\x20-\x7E\xA0-\xFF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]/g, '')
+    }
+
     function addLine(text, size = 11, color = DARK, bold = false, x = margin, indent = 0) {
       const f = bold ? fontBold : font
       const w = page.getWidth() - 2 * margin - indent
-      const words = text.split(' ')
+      const words = sanitize(text).split(' ')
       let line = ''
       for (const word of words) {
         const test = line ? line + ' ' + word : word
@@ -80,6 +85,35 @@ export default async function handler(req, res) {
       if (line) {
         page.drawText(line, { x: x + indent, y, size, font: f, color })
         y -= size * 1.45
+      }
+    }
+
+    function addParagraph(text, size = 10.5, color = DARK) {
+      // Split on double newlines for paragraphs, then sanitize and wrap
+      const paragraphs = String(text).split(/\n\s*\n/);
+      for (let i = 0; i < paragraphs.length; i++) {
+        const para = sanitize(paragraphs[i]).trim();
+        if (!para) continue;
+        
+        const words = para.split(' ');
+        const w = page.getWidth() - 2 * margin;
+        let line = '';
+        for (const word of words) {
+          const test = line ? line + ' ' + word : word;
+          if (font.widthOfTextAtSize(test, size) > w) {
+            page.drawText(line, { x: margin, y, size, font, color });
+            y -= size * 1.45;
+            line = word;
+          } else {
+            line = test;
+          }
+        }
+        if (line) {
+          page.drawText(line, { x: margin, y, size, font, color });
+          y -= size * 1.45;
+        }
+        // Add spacing between paragraphs
+        y -= 4;
       }
     }
 
@@ -136,7 +170,7 @@ export default async function handler(req, res) {
     y -= 22
 
     if (execSummary) {
-      addLine(execSummary, 10.5, DARK)
+      addParagraph(execSummary, 10.5, DARK)
     } else {
       addLine('No executive summary available.', 10.5, GRAY)
     }
@@ -244,9 +278,10 @@ export default async function handler(req, res) {
         })
 
         // Finding text
+        const clean = sanitize(finding)
         const maxW = pageWidth - 2 * margin - 20
         const findingSize = 10
-        const words = finding.split(' ')
+        const words = clean.split(' ')
         let line = ''
         for (const word of words) {
           const test = line ? line + ' ' + word : word
