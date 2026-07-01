@@ -189,24 +189,46 @@ Write in second person perspective. Maximum 250 words total.`
 async function processInBackground(reportId, filePath) {
   const supabase = getSupabase()
 
+  // Wrap the entire function body in try/catch and always update report status on failure
   try {
-    // STEP A: Download & Parse
+    // STEP A: Download & Parse using signed URL approach
     console.log(`[process-report] Downloading ${filePath}`)
-    const { data: fileData, error: dlError } = await supabase.storage
-      .from('documents')
-      .download(filePath)
 
-    if (dlError || !fileData) {
-      const errMsg = dlError?.message || 'Unknown storage error'
-      console.error('[process-report] Download failed:', dlError, 'for path:', filePath)
-      await supabase.from('reports').update({
-        status: 'error',
-        extracted_data: { error: `Download failed: ${errMsg}` },
-      }).eq('id', reportId)
-      return
+    // Step 1: Generate a short-lived signed URL (60 seconds is enough)
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(filePath, 60)
+
+    if (signedError || !signedData?.signedUrl) {
+      throw new Error('Failed to create signed URL: ' + (signedError?.message || 'no URL returned'))
     }
 
-    const buffer = Buffer.from(await fileData.arrayBuffer())
+    // Step 2: Fetch the file directly via HTTPS with a timeout
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 25000) // 25 second timeout
+
+    let arrayBuffer
+    try {
+      const fileResponse = await fetch(signedData.signedUrl, { 
+        signal: controller.signal,
+        headers: { 'Accept': '*/*' }
+      })
+      clearTimeout(timeout)
+
+      if (!fileResponse.ok) {
+        throw new Error(`File fetch failed: ${fileResponse.status} ${fileResponse.statusText}`)
+      }
+
+      arrayBuffer = await fileResponse.arrayBuffer()
+    } catch (fetchErr) {
+      clearTimeout(timeout)
+      if (fetchErr.name === 'AbortError') {
+        throw new Error('File download timed out after 25 seconds. File may be too large.')
+      }
+      throw new Error('File download failed: ' + fetchErr.message)
+    }
+
+    const buffer = Buffer.from(arrayBuffer)
     const fileName = filePath.split('/').pop() || 'document'
     const extractedText = await parseFile(buffer, fileName)
 
@@ -286,15 +308,17 @@ async function processInBackground(reportId, filePath) {
       console.log('[process-report] Report complete:', reportId)
     }
   } catch (err) {
-    console.error('[process-report] Unexpected error:', err)
+    console.error('[process-report] Fatal error:', err.message, err.stack)
+
+    // Always mark the report as errored so the frontend knows
     await supabase
       .from('reports')
-      .update({
-        status: 'error',
-        extracted_data: { error: err.message },
+      .update({ 
+        status: 'error', 
+        error_message: err.message,
+        updated_at: new Date().toISOString()
       })
       .eq('id', reportId)
-      .catch(() => {})
   }
 }
 
@@ -316,6 +340,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server not configured — missing OpenRouter API key' })
   }
 
+  // Wrap the entire function body in try/catch and always update report status on failure
   try {
     // Mark as processing
     const supabase = getSupabase()
@@ -335,6 +360,17 @@ export default async function handler(req, res) {
     })
   } catch (err) {
     console.error('[process-report] Handler error:', err)
+
+    // Always mark the report as errored so the frontend knows
+    await supabase
+      .from('reports')
+      .update({ 
+        status: 'error', 
+        error_message: err.message,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', reportId)
+
     res.status(500).json({ error: err.message })
   }
 }
