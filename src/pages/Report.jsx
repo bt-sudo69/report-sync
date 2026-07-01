@@ -12,6 +12,7 @@ import {
   Presentation,
   AlertCircle,
   RotateCcw,
+  Loader2,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -337,6 +338,8 @@ export default function Report() {
   const [loading, setLoading] = useState(true)
   const [polling, setPolling] = useState(false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportingPptx, setExportingPptx] = useState(false)
   const pollTimer = useRef(null)
 
   /* ───── fetch report ───── */
@@ -422,15 +425,15 @@ export default function Report() {
 
   /* ───── export ───── */
   const handleExport = async (format) => {
+    const setLoading = format === 'pdf' ? setExportingPdf : setExportingPptx
+    setLoading(true)
     try {
-      toast.loading(`Generating ${format.toUpperCase()}...`)
       const response = await fetch(`/api/export-${format}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reportId: report?.id, userId: user?.id })
       })
       const data = await response.json()
-      toast.dismiss()
       if (response.ok && data.signedUrl) {
         window.open(data.signedUrl, '_blank')
         toast.success(`${format.toUpperCase()} exported!`)
@@ -438,8 +441,9 @@ export default function Report() {
         toast.error(data.error || `Failed to export ${format.toUpperCase()}`)
       }
     } catch (err) {
-      toast.dismiss()
       toast.error(`Export failed: ${err.message}`)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -530,19 +534,29 @@ export default function Report() {
               {/* Export PDF */}
               <button
                 onClick={() => handleExport('pdf')}
-                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={exportingPdf}
+                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <FileDown className="h-4 w-4" />
-                PDF
+                {exportingPdf ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4" />
+                )}
+                {exportingPdf ? 'Generating...' : 'PDF'}
               </button>
 
               {/* Export PPTX */}
               <button
                 onClick={() => handleExport('pptx')}
-                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={exportingPptx}
+                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Presentation className="h-4 w-4" />
-                PPTX
+                {exportingPptx ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Presentation className="h-4 w-4" />
+                )}
+                {exportingPptx ? 'Generating...' : 'PPTX'}
               </button>
 
               {/* Share */}

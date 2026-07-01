@@ -1,18 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
-// Initialize Supabase client with service role key for backend operations
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-// Colours
-const BLUE = rgb(37 / 255, 99 / 255, 235 / 255)   // #2563EB
-const DARK = rgb(0.11, 0.11, 0.11)                   // #1C1C1C
-const GRAY = rgb(0.42, 0.42, 0.42)                   // #6B7280
-const LIGHT_GRAY = rgb(0.9, 0.9, 0.9)                // #E5E7EB
+// Colours matching spec
+const BLUE = rgb(37 / 255, 99 / 255, 235 / 255)      // #2563EB
+const DARK_TEXT = rgb(0.059, 0.094, 0.165)            // #0F172A
+const MUTED = rgb(0.392, 0.455, 0.545)                // #64748B
+const LIGHT_BG = rgb(0.973, 0.98, 0.988)              // #F8FAFC
+const BORDER = rgb(0.886, 0.909, 0.941)               // #E2E8F0
 const WHITE = rgb(1, 1, 1)
+const SUMMARY_BG = rgb(0.937, 0.965, 1)               // #EFF6FF
+const GREEN = rgb(0.086, 0.635, 0.29)                 // #16A34A
+const RED = rgb(0.863, 0.149, 0.149)                  // #DC2626
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -22,12 +25,10 @@ export default async function handler(req, res) {
 
   try {
     const { reportId, userId } = req.body
-
     if (!reportId || !userId) {
       return res.status(400).json({ error: 'Missing required fields: reportId and userId' })
     }
 
-    // Fetch report data
     const { data: report, error: reportError } = await supabase
       .from('reports')
       .select('id, user_id, title, kpis, executive_summary, extracted_data')
@@ -44,305 +45,180 @@ export default async function handler(req, res) {
 
     const extracted = report.extracted_data || {}
     const key_findings = extracted.key_findings || []
-    const time_period = extracted.time_period || ''
-    const document_type = extracted.document_type || ''
-    const kpis = Array.isArray(report.kpis) ? report.kpis : []
+    const time_period = extracted.time_period || 'N/A'
+    const kpis = report.kpis || []
     const execSummary = report.executive_summary || ''
 
-    // ── Create PDF ──
+    // Create PDF document
     const pdfDoc = await PDFDocument.create()
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-    
-    const pageWidth = 595.28  // A4 width in points
-    const pageHeight = 841.89 // A4 height in points
-    const margin = 56         // ~2cm margin
+    const page = pdfDoc.addPage([595.28, 841.89]) // A4
+    const pw = page.getWidth()
+    const ph = page.getHeight()
+    const margin = 50
+    let y = ph - margin
 
-    let page = pdfDoc.addPage([pageWidth, pageHeight])
-    let y = pageHeight - margin
-
-    // --- Helper to add text and track position ---
-    function sanitize(t) {
-      // Remove characters that WinAnsi can't encode (newlines, special chars)
-      return String(t).replace(/[\n\r\t]+/g, ' ').replace(/[^\x20-\x7E\xA0-\xFF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]/g, '')
-    }
-
-    function addLine(text, size = 11, color = DARK, bold = false, x = margin, indent = 0) {
-      const f = bold ? fontBold : font
-      const w = page.getWidth() - 2 * margin - indent
-      const words = sanitize(text).split(' ')
+    // ── Helper: wrapped text ──
+    function wrapText(text, size, maxW, f = font) {
+      const words = String(text).split(/\s+/)
+      const lines = []
       let line = ''
-      for (const word of words) {
-        const test = line ? line + ' ' + word : word
-        if (f.widthOfTextAtSize(test, size) > w) {
-          page.drawText(line, { x: x + indent, y, size, font: f, color })
-          y -= size * 1.45
-          line = word
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w
+        if (f.widthOfTextAtSize(test, size) > maxW) {
+          if (line) { lines.push(line); line = w }
+          else { lines.push(test); line = '' }
         } else {
           line = test
         }
       }
-      if (line) {
-        page.drawText(line, { x: x + indent, y, size, font: f, color })
-        y -= size * 1.45
+      if (line) lines.push(line)
+      return lines
+    }
+
+    function drawText(text, size, color = DARK_TEXT, x = margin, yPos = y, f = font) {
+      page.drawText(text, { x, y: yPos, size, font: f, color })
+    }
+
+    function drawWrapped(text, size, color = DARK_TEXT, x = margin, maxW = pw - 2 * margin, f = font) {
+      const lines = wrapText(text, size, maxW, f)
+      for (const line of lines) {
+        if (y < margin + size) {
+          // New page
+          const p = pdfDoc.addPage([595.28, 841.89])
+          y = ph - margin
+        }
+        drawText(line, size, color, x, y, f)
+        y -= size * 1.4
       }
     }
 
-    function addParagraph(text, size = 10.5, color = DARK) {
-      // Split on double newlines for paragraphs, then sanitize and wrap
-      const paragraphs = String(text).split(/\n\s*\n/);
-      for (let i = 0; i < paragraphs.length; i++) {
-        const para = sanitize(paragraphs[i]).trim();
-        if (!para) continue;
-        
-        const words = para.split(' ');
-        const w = page.getWidth() - 2 * margin;
-        let line = '';
-        for (const word of words) {
-          const test = line ? line + ' ' + word : word;
-          if (font.widthOfTextAtSize(test, size) > w) {
-            page.drawText(line, { x: margin, y, size, font, color });
-            y -= size * 1.45;
-            line = word;
-          } else {
-            line = test;
-          }
-        }
-        if (line) {
-          page.drawText(line, { x: margin, y, size, font, color });
-          y -= size * 1.45;
-        }
-        // Add spacing between paragraphs
-        y -= 4;
-      }
-    }
+    // ── Title ──
+    drawText(report.title, 24, DARK_TEXT, margin, y, fontBold)
+    y -= 32
 
-    function addDivider(yPos) {
-      page.drawLine({
-        start: { x: margin, y: yPos },
-        end: { x: pageWidth - margin, y: yPos },
-        thickness: 1.5,
-        color: BLUE,
-      })
-    }
+    // ── Period line ──
+    drawText(`Period: ${time_period} · Generated by GetReportSync · ${new Date().toLocaleDateString('en-GB')}`, 11, MUTED, margin, y)
+    y -= 28
 
-    // ══════ PAGE 1: HEADER ══════
-    // Blue accent bar at top
-    page.drawRectangle({
-      x: 0, y: pageHeight - 6,
-      width: pageWidth, height: 6,
-      color: BLUE,
-    })
-
-    y -= 30
-    // Title
-    const titleSize = report.title.length > 40 ? 18 : 22
-    page.drawText(report.title || 'Report', {
-      x: margin, y, size: titleSize, font: fontBold, color: DARK,
-    })
-    y -= titleSize * 1.5
-
-    // Meta
-    const metaText = [document_type, time_period].filter(Boolean).join(' · ')
-    if (metaText) {
-      page.drawText(metaText, {
-        x: margin, y, size: 10, font, color: GRAY,
-      })
-      y -= 20
-    }
-
-    // Generated date
-    const dateStr = new Date().toLocaleDateString('en-GB', {
-      day: 'numeric', month: 'long', year: 'numeric'
-    })
-    page.drawText(`Generated by GetReportSync · ${dateStr}`, {
-      x: margin, y, size: 9, font, color: GRAY,
-    })
-    y -= 30
-
-    addDivider(y)
-    y -= 25
-
-    // ══════ EXECUTIVE SUMMARY ══════
-    page.drawText('Executive Summary', {
-      x: margin, y, size: 14, font: fontBold, color: BLUE,
-    })
-    y -= 22
-
-    if (execSummary) {
-      addParagraph(execSummary, 10.5, DARK)
-    } else {
-      addLine('No executive summary available.', 10.5, GRAY)
-    }
-    y -= 10
-
-    // ══════ KEY METRICS ══════
-    // Check if we need a new page
-    if (y < 200) {
-      page = pdfDoc.addPage([pageWidth, pageHeight])
-      y = pageHeight - margin
-    }
-
-    page.drawText('Key Metrics', {
-      x: margin, y, size: 14, font: fontBold, color: BLUE,
-    })
-    y -= 22
-
+    // ── KPI Grid ──
     if (kpis.length > 0) {
-      // Draw KPI cards in a 2-column grid
-      const cardW = (pageWidth - 3 * margin) / 2
-      const cardH = 70
-      const cols = 2
+      const cols = 3
+      const gap = 12
+      const cardW = (pw - 2 * margin - (cols - 1) * gap) / cols
+      const cardH = 62
 
-      for (let i = 0; i < kpis.length; i++) {
+      kpis.forEach((kpi, i) => {
         const col = i % cols
         const row = Math.floor(i / cols)
-        const cx = margin + col * (cardW + margin)
-        const cy = y - row * (cardH + 15)
-
-        // Need space — add page
-        if (cy - cardH < margin + 40) {
-          page = pdfDoc.addPage([pageWidth, pageHeight])
-          y = pageHeight - margin - 40
-          continue
-        }
+        const cx = margin + col * (cardW + gap)
+        const cy = y - row * (cardH + gap) - cardH
 
         // Card background
         page.drawRectangle({
-          x: cx, y: cy - cardH,
-          width: cardW, height: cardH,
-          color: LIGHT_GRAY,
-          borderColor: rgb(0.93, 0.93, 0.93),
-          borderWidth: 1,
+          x: cx, y: cy, width: cardW, height: cardH,
+          color: LIGHT_BG, borderColor: BORDER, borderWidth: 1,
         })
 
-        // KPI value
-        const val = kpis[i].value || 'N/A'
-        const valSize = val.length > 8 ? 18 : 24
-        page.drawText(val, {
-          x: cx + 12, y: cy - 24,
-          size: valSize, font: fontBold, color: BLUE,
-        })
-
-        // KPI label
-        page.drawText(kpis[i].label || 'Metric', {
-          x: cx + 12, y: cy - 50,
-          size: 10, font, color: GRAY,
-        })
-
-        // Change percentage
-        if (kpis[i].change_pct != null) {
-          const pct = kpis[i].change_pct
-          const pctStr = `${pct > 0 ? '+' : ''}${pct}%`
-          const pctColor = pct >= 0 ? rgb(0.06, 0.67, 0.18) : rgb(0.93, 0.27, 0.27)
-          page.drawText(pctStr, {
-            x: cx + cardW - 50, y: cy - 24,
-            size: 10, font: fontBold, color: pctColor,
-          })
+        // Value
+        const val = `${kpi.value || ''}${kpi.unit || ''}`
+        drawText(val, 18, DARK_TEXT, cx + 10, cy + cardH - 22, fontBold)
+        // Label
+        drawText(kpi.label || '', 10, MUTED, cx + 10, cy + 10)
+        // Change
+        if (kpi.change_pct != null) {
+          const up = kpi.trend === 'up'
+          const chg = `${up ? '↑' : '↓'} ${Math.abs(kpi.change_pct)}%`
+          const cw = font.widthOfTextAtSize(chg, 10)
+          drawText(chg, 10, up ? GREEN : RED, cx + cardW - cw - 10, cy + 10)
         }
-      }
+      })
 
-      y = y - Math.ceil(kpis.length / cols) * (cardH + 15) - 15
-    } else {
-      addLine('No KPIs available.', 10.5, GRAY)
+      const gridH = Math.ceil(kpis.length / cols) * (cardH + gap)
+      y -= gridH + 16
     }
 
-    y -= 10
-
-    // ══════ KEY FINDINGS ══════
-    if (key_findings.length > 0) {
-      if (y < 120) {
-        page = pdfDoc.addPage([pageWidth, pageHeight])
-        y = pageHeight - margin
-      }
-
-      addDivider(y)
-      y -= 25
-
-      page.drawText('Key Findings', {
-        x: margin, y, size: 14, font: fontBold, color: BLUE,
+    // ── Executive Summary ──
+    if (execSummary) {
+      // Blue left border (rectangle)
+      page.drawRectangle({
+        x: margin, y: y - 10, width: 4, height: 60 + Math.min(execSummary.length, 400),
+        color: BLUE,
       })
-      y -= 22
+      // Label
+      page.drawText('EXECUTIVE SUMMARY', {
+        x: margin + 16, y: y + 4, size: 10, font: fontBold, color: BLUE,
+      })
+      y -= 18
+      // Summary bg
+      const summaryHeight = 24 + Math.min(execSummary.length * 0.3, 200)
+      page.drawRectangle({
+        x: margin, y: y - summaryHeight, width: pw - 2 * margin, height: summaryHeight,
+        color: SUMMARY_BG,
+      })
+      // Text
+      const savedY = y
+      drawWrapped(execSummary.replace(/\n/g, ' '), 12, DARK_TEXT, margin + 16, pw - 2 * margin - 32)
+      y = Math.min(y, savedY - summaryHeight + 10)
+      y -= 20
+    }
+
+    // ── Key Findings ──
+    if (key_findings.length > 0) {
+      drawText('Key Findings', 14, DARK_TEXT, margin, y, fontBold)
+      y -= 20
 
       for (const finding of key_findings) {
-        if (y < 40) {
-          page = pdfDoc.addPage([pageWidth, pageHeight])
-          y = pageHeight - margin
+        if (y < margin + 24) {
+          const p = pdfDoc.addPage([595.28, 841.89])
+          y = ph - margin
         }
 
-        // Bullet dot
-        page.drawCircle({
-          x: margin + 4, y: y - 5,
-          size: 3,
-          color: BLUE,
-        })
-
+        // Arrow bullet
+        page.drawText('→', { x: margin, y: y + 2, size: 12, font, color: BLUE })
         // Finding text
-        const clean = sanitize(finding)
-        const maxW = pageWidth - 2 * margin - 20
-        const findingSize = 10
-        const words = clean.split(' ')
-        let line = ''
-        for (const word of words) {
-          const test = line ? line + ' ' + word : word
-          if (font.widthOfTextAtSize(test, findingSize) > maxW) {
-            page.drawText(line, {
-              x: margin + 16, y, size: findingSize, font, color: DARK,
-            })
-            y -= findingSize * 1.5
-            line = word
-          } else {
-            line = test
-          }
+        const findingW = pw - margin * 2 - 20
+        const flines = wrapText(finding, 12, findingW)
+        for (const fl of flines) {
+          drawText(fl, 12, DARK_TEXT, margin + 16, y)
+          y -= 16
         }
-        if (line) {
-          page.drawText(line, {
-            x: margin + 16, y, size: findingSize, font, color: DARK,
-          })
-          y -= findingSize * 1.5
-        }
-        y -= 6
+        y -= 4
       }
+      y -= 10
     }
 
-    // ── Footer on every page ──
-    const pages = pdfDoc.getPages()
-    for (const p of pages) {
-      const pw = p.getWidth()
-      p.drawLine({
-        start: { x: margin, y: 40 },
-        end: { x: pw - margin, y: 40 },
-        thickness: 0.5,
-        color: GRAY,
-      })
-      p.drawText('GetReportSync · Confidential', {
-        x: margin, y: 25,
-        size: 8, font, color: GRAY,
-      })
-      p.drawText(`Page ${pages.indexOf(p) + 1} of ${pages.length}`, {
-        x: pw - margin - 80, y: 25,
-        size: 8, font, color: GRAY,
-      })
-    }
+    // ── Footer ──
+    y = margin + 20
+    const footerY = y
+    page.drawLine({
+      start: { x: margin, y: footerY + 10 },
+      end: { x: pw - margin, y: footerY + 10 },
+      color: BORDER, thickness: 1,
+    })
+    const today = new Date().toLocaleDateString('en-GB')
+    drawText('GetReportSync.com', 10, MUTED, margin, footerY - 4)
+    const mid = `${report.title} · Confidential`
+    const midW = font.widthOfTextAtSize(mid, 10)
+    drawText(mid, 10, MUTED, (pw - midW) / 2, footerY - 4)
+    const dateW = font.widthOfTextAtSize(today, 10)
+    drawText(today, 10, MUTED, pw - margin - dateW, footerY - 4)
 
-    // ── Serialize PDF ──
-    const pdfBytes = await pdfDoc.save()
+    // ── Serialize ──
+    const pdfBuffer = Buffer.from(await pdfDoc.save())
 
-    // Upload to Supabase Storage
-    const filePath = `${userId}/report-${reportId}.pdf`
+    // ── Upload to Supabase Storage ──
+    const filePath = `${userId}/pdf-${reportId}.pdf`
     const { error: uploadError } = await supabase.storage
       .from('exports')
-      .upload(filePath, pdfBytes, {
+      .upload(filePath, pdfBuffer, {
         contentType: 'application/pdf',
-        upsert: true
+        upsert: true,
       })
 
-    if (uploadError) {
-      console.error('[export-pdf] Upload error:', uploadError)
-      throw uploadError
-    }
+    if (uploadError) throw uploadError
 
-    // Generate signed URL (valid for 1 hour)
     const { data: urlData, error: urlError } = await supabase.storage
       .from('exports')
       .createSignedUrl(filePath, 3600)
@@ -352,7 +228,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ signedUrl: urlData.signedUrl })
   } catch (err) {
     console.error('[export-pdf] Handler error:', err)
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to generate PDF export: ' + (err.message || 'Unknown error')
     })
   }
