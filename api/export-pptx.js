@@ -38,6 +38,7 @@ export default async function handler(req, res) {
     }
 
     // Verify the report belongs to the user (security check)
+    console.log('[export-pptx] Verifying report:', { reportId, userId })
     const { data: report, error: reportError } = await getSupabase()
       .from('reports')
       .select('id, user_id, title, document_type, kpis, executive_summary, key_findings, time_period')
@@ -45,9 +46,16 @@ export default async function handler(req, res) {
       .eq('user_id', userId)
       .single()
 
-    if (reportError || !report) {
+    if (reportError) {
+      console.error('[export-pptx] Supabase query error:', reportError)
       return res.status(403).json({ 
-        error: 'Unauthorized: Report not found or access denied'
+        error: 'Report not found: ' + reportError.message
+      })
+    }
+    if (!report) {
+      console.error('[export-pptx] No report returned for:', { reportId, userId })
+      return res.status(403).json({ 
+        error: 'Report not found or access denied'
       })
     }
 
