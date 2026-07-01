@@ -1,5 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
-import PptxGenJS from 'pptxgenjs'
+import { createRequire } from 'module'
+
+let PptxGenJS
+try {
+  const require = createRequire(import.meta.url)
+  PptxGenJS = require('pptxgenjs')
+} catch (e) {
+  console.error('pptxgenjs require failed:', e.message)
+}
 
 function getSupabase() {
   return createClient(
