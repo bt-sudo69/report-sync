@@ -1,5 +1,4 @@
 import { createRequire } from 'module'
-import { createClient } from '@supabase/supabase-js'
 
 /* ───── CJS requires (v1 pdf-parse doesn't need canvas/DOMMatrix) ───── */
 const require = createRequire(import.meta.url)
@@ -11,41 +10,65 @@ try {
   console.error('[process-report] CJS modules failed to load:', e.message)
 }
 
-/* ───── Supabase service client (lazy to avoid startup crash) ───── */
-let _supabase = null
-function getSupabase() {
-  if (_supabase) return _supabase
-  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('Missing Supabase env vars (VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
-  _supabase = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'apikey': key,
-      },
+/* ───── Config ───── */
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY
+const MODEL = 'deepseek/deepseek-chat-v3-0324'
+
+/* ───── Direct Supabase REST helpers (bypass broken JS client) ───── */
+async function supabaseUpdate(table, matchId, data) {
+  const url = `${SUPABASE_URL}/rest/v1/${table}?id=eq.${matchId}`
+  console.log(`[process-report] REST PATCH ${table} id=${matchId}`)
+
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SERVICE_KEY,
+      'Authorization': `Bearer ${SERVICE_KEY}`,
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(data),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error(`[process-report] REST PATCH failed ${res.status}:`, text.slice(0, 300))
+    throw new Error(`DB update failed (${res.status}): ${text.slice(0, 200)}`)
+  }
+
+  console.log(`[process-report] REST PATCH OK`)
+}
+
+async function supabaseStorageDownload(filePath) {
+  const url = `${SUPABASE_URL}/storage/v1/object/documents/${filePath}`
+  console.log(`[process-report] REST GET storage ${filePath}`)
+
+  const res = await fetch(url, {
+    headers: {
+      'apikey': SERVICE_KEY,
+      'Authorization': `Bearer ${SERVICE_KEY}`,
     },
   })
-  return _supabase
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error(`[process-report] Storage download failed ${res.status}:`, text.slice(0, 300))
+    throw new Error(`File download failed (${res.status}): ${text.slice(0, 200)}`)
+  }
+
+  const arrayBuffer = await res.arrayBuffer()
+  console.log(`[process-report] Downloaded ${arrayBuffer.byteLength} bytes`)
+  return arrayBuffer
 }
 
-/* ───── AI API config (OpenRouter) ───── */
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL_EXTRACT = 'deepseek/deepseek-chat-v3-0324'
-const MODEL_NARRATIVE = 'deepseek/deepseek-chat-v3-0324'
-
-function getApiKey() {
-  const key = process.env.OPENROUTER_API_KEY
-  if (!key) throw new Error('OPENROUTER_API_KEY not configured')
-  return key
-}
-
+/* ───── AI API ───── */
 async function callAI(systemPrompt, userPrompt, opts = {}) {
-  const { maxTokens = 2000, temperature = 0.1, timeoutMs = 45000 } = opts
-  const apiKey = getApiKey()
+  const { maxTokens = 2000, temperature = 0.1, timeoutMs = 60000 } = opts
 
-  console.log(`[process-report] Calling AI (maxTokens=${maxTokens}, temp=${temperature}, timeout=${timeoutMs}ms)`)
+  console.log(`[process-report] Calling AI (maxTokens=${maxTokens})`)
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -56,12 +79,12 @@ async function callAI(systemPrompt, userPrompt, opts = {}) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${OPENROUTER_KEY}`,
         'HTTP-Referer': 'https://www.getreportsync.com',
         'X-Title': 'GetReportSync',
       },
       body: JSON.stringify({
-        model: MODEL_EXTRACT,
+        model: MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -73,24 +96,18 @@ async function callAI(systemPrompt, userPrompt, opts = {}) {
     })
   } catch (fetchErr) {
     clearTimeout(timer)
-    if (fetchErr.name === 'AbortError') {
-      throw new Error(`AI API timed out after ${timeoutMs / 1000}s`)
-    }
-    throw new Error(`AI API network error: ${fetchErr.message}`)
+    if (fetchErr.name === 'AbortError') throw new Error(`AI timed out after ${timeoutMs / 1000}s`)
+    throw new Error(`AI network error: ${fetchErr.message}`)
   }
   clearTimeout(timer)
 
   if (!res.ok) {
     const text = await res.text()
-    console.error(`[process-report] AI API error ${res.status}:`, text.slice(0, 500))
-    throw new Error(`AI API error ${res.status}: ${text.slice(0, 200)}`)
+    throw new Error(`AI error ${res.status}: ${text.slice(0, 200)}`)
   }
 
   const data = await res.json()
-
-  if (data.error) {
-    throw new Error(`AI API returned error: ${JSON.stringify(data.error).slice(0, 200)}`)
-  }
+  if (data.error) throw new Error(`AI returned error: ${JSON.stringify(data.error).slice(0, 200)}`)
 
   const content = data.choices?.[0]?.message?.content || ''
   console.log(`[process-report] AI response: ${content.length} chars`)
@@ -100,7 +117,7 @@ async function callAI(systemPrompt, userPrompt, opts = {}) {
 /* ───── Helpers ───── */
 function truncateText(text, maxChars = 60000) {
   if (text.length <= maxChars) return text
-  return text.slice(0, maxChars) + '\n\n... (text truncated due to length)'
+  return text.slice(0, maxChars) + '\n\n... (truncated)'
 }
 
 /* ───── File parsing ───── */
@@ -110,26 +127,22 @@ async function parseFile(arrayBuffer, fileName) {
   console.log(`[process-report] Parsing: ${fileName} (${ext}, ${buffer.length} bytes)`)
 
   if (ext === 'pdf') {
-    if (!pdfParse) throw new Error('pdf-parse module not available')
+    if (!pdfParse) throw new Error('pdf-parse not available')
     const result = await pdfParse(buffer)
     return truncateText(result.text)
   }
 
   if (ext === 'xlsx' || ext === 'xls') {
-    if (!XLSX) throw new Error('xlsx module not available')
+    if (!XLSX) throw new Error('xlsx not available')
     const workbook = XLSX.read(buffer, { type: 'buffer' })
-    const sheetName = workbook.SheetNames[0]
-    const data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName])
+    const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]])
     return truncateText(JSON.stringify(data))
   }
 
-  if (ext === 'csv') {
-    return truncateText(buffer.toString('utf8'))
-  }
+  if (ext === 'csv') return truncateText(buffer.toString('utf8'))
 
   if (ext === 'docx') {
-    let mammoth
-    try { mammoth = await import('mammoth') } catch { throw new Error('mammoth module not available') }
+    const mammoth = await import('mammoth')
     const result = await mammoth.extractRawText({ buffer })
     return truncateText(result.value)
   }
@@ -139,17 +152,27 @@ async function parseFile(arrayBuffer, fileName) {
 
 /* ───── Extraction prompt ───── */
 function extractionPrompt(text) {
-  return `Extract from this document and return JSON exactly matching this structure:
+  return `Analyse this business document and return a JSON object with this EXACT structure. Return ONLY valid JSON, no markdown fences, no explanation.
+
 {
   "document_type": "financial|sales|operations|hr|project|general",
-  "title": "string",
-  "kpis": [{"label":"string","value":"string","unit":"string","change_pct":0,"trend":"up|down|flat"}],
-  "charts": [{"type":"line|bar|doughnut|area","title":"string","x_label":"string","y_label":"string","data":{"labels":[],"datasets":[{"label":"string","data":[]}]}}],
-  "key_findings": ["string"],
-  "time_period": "string"
+  "title": "A concise professional title for this document",
+  "kpis": [
+    {"label": "Metric Name", "value": "£1.2M", "unit": "GBP", "change_pct": 12.5, "trend": "up"}
+  ],
+  "charts": [
+    {"type": "bar", "title": "Chart Title", "x_label": "X Axis", "y_label": "Y Axis", "data": {"labels": ["Q1","Q2"], "datasets": [{"label": "Series", "data": [100,120]}]}}
+  ],
+  "key_findings": [
+    "First key finding as a complete sentence.",
+    "Second key finding as a complete sentence."
+  ],
+  "time_period": "Q3 2024"
 }
 
-Document:
+IMPORTANT: You MUST extract at least 3 KPIs and 3 key findings from the data. Even simple metrics like totals, counts, averages, or ranges count as KPIs. Every document has extractable data.
+
+Document content:
 ${text}`
 }
 
@@ -176,59 +199,35 @@ export default async function handler(req, res) {
   }
 
   const { reportId, filePath } = req.body
+  if (!reportId || !filePath) return res.status(400).json({ error: 'Missing reportId or filePath' })
+  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'Missing Supabase config' })
+  if (!OPENROUTER_KEY) return res.status(500).json({ error: 'Missing OpenRouter key' })
 
-  if (!reportId || !filePath) {
-    return res.status(400).json({ error: 'Missing reportId or filePath' })
-  }
-
-  const supabase = getSupabase()
-
-  // Diagnostic: log connection info (safe — no secrets)
-  console.log(`[process-report] Supabase URL: ${process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'NOT SET'}`)
-  console.log(`[process-report] Service key set: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY}`)
-
-  // Mark as processing
-  console.log(`[process-report] Starting: reportId=${reportId}, file=${filePath}`)
+  console.log(`[process-report] START reportId=${reportId} file=${filePath}`)
 
   try {
-    await supabase
-      .from('reports')
-      .update({ status: 'processing', error_message: null, updated_at: new Date().toISOString() })
-      .eq('id', reportId)
+    // Mark processing
+    await supabaseUpdate('reports', reportId, {
+      status: 'processing',
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    })
 
-    /* ── Step A: Download file from Supabase Storage ── */
-    console.log(`[process-report] Downloading file: ${filePath}`)
-    console.log(`[process-report] Bucket: documents`)
+    /* ── Step A: Download ── */
+    const arrayBuffer = await supabaseStorageDownload(filePath)
 
-    // Try direct download first (most reliable with service role key)
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from('documents')
-      .download(filePath)
-
-    if (downloadError) {
-      console.error('[process-report] Direct download error:', JSON.stringify(downloadError))
-      throw new Error('File download failed: ' + (downloadError.message || JSON.stringify(downloadError)))
-    }
-
-    if (!fileData) {
-      throw new Error('File download returned no data')
-    }
-
-    const arrayBuffer = await fileData.arrayBuffer()
-    console.log(`[process-report] Downloaded ${arrayBuffer.byteLength} bytes`)
-
-    /* ── Step B: Parse file ── */
+    /* ── Step B: Parse ── */
     const fileName = filePath.split('/').pop() || 'document'
     const text = await parseFile(arrayBuffer, fileName)
     console.log(`[process-report] Parsed: ${text.length} chars`)
 
     if (!text || text.trim().length < 50) {
-      await supabase.from('reports').update({
+      await supabaseUpdate('reports', reportId, {
         status: 'error',
         error_message: 'Document contains too little readable text to analyse.',
-        extracted_data: { error: 'Document contains too little readable text to analyse.' },
+        extracted_data: { error: 'Document contains too little readable text.' },
         updated_at: new Date().toISOString(),
-      }).eq('id', reportId)
+      })
       return res.status(200).json({ success: false, error: 'Document too short' })
     }
 
@@ -236,12 +235,12 @@ export default async function handler(req, res) {
 
     /* ── Step C: AI extraction ── */
     console.log('[process-report] Running extraction...')
-    const sysExtract = 'You extract structured data from business documents. Return ONLY valid JSON, no markdown, no explanation.'
+    const sysExtract = 'You extract structured data from business documents. Return ONLY valid JSON, no markdown fences, no explanation text. Just the JSON object.'
 
     const rawExtraction = await callAI(sysExtract, extractionPrompt(promptText), {
       maxTokens: 2000,
       temperature: 0.1,
-      timeoutMs: 45000,
+      timeoutMs: 60000,
     })
 
     const cleanJson = rawExtraction.replace(/```json|```/g, '').trim()
@@ -249,7 +248,8 @@ export default async function handler(req, res) {
     try {
       extracted = JSON.parse(cleanJson)
     } catch (parseErr) {
-      throw new Error(`Failed to parse extraction JSON: ${parseErr.message}`)
+      console.error('[process-report] Extraction parse failed. Raw response:', rawExtraction.slice(0, 500))
+      throw new Error(`AI extraction returned invalid JSON: ${parseErr.message}. Raw: ${rawExtraction.slice(0, 200)}`)
     }
 
     extracted.document_type = extracted.document_type || 'general'
@@ -259,7 +259,7 @@ export default async function handler(req, res) {
     extracted.key_findings = Array.isArray(extracted.key_findings) ? extracted.key_findings : []
     extracted.time_period = extracted.time_period || new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-    console.log(`[process-report] Extraction: ${extracted.kpis.length} KPIs, ${extracted.key_findings.length} findings`)
+    console.log(`[process-report] Extracted: ${extracted.kpis.length} KPIs, ${extracted.key_findings.length} findings, ${extracted.charts.length} charts`)
 
     /* ── Step D: AI narrative ── */
     console.log('[process-report] Generating narrative...')
@@ -270,63 +270,45 @@ export default async function handler(req, res) {
       narrativeResponse = await callAI(
         sysNarrative,
         narrativePrompt(extracted.document_type, extracted.title, extracted.kpis, extracted.key_findings),
-        { maxTokens: 600, temperature: 0.3, timeoutMs: 45000 }
+        { maxTokens: 600, temperature: 0.3, timeoutMs: 60000 }
       )
     } catch (narErr) {
-      console.error('[process-report] Narrative failed, using findings as fallback:', narErr.message)
-      narrativeResponse = extracted.key_findings?.join('\n\n') || 'Report generated successfully.'
+      console.error('[process-report] Narrative failed:', narErr.message)
+      narrativeResponse = extracted.key_findings?.join('. ') || 'Report generated successfully.'
     }
 
-    /* ── Step E: Save to Supabase ── */
+    /* ── Step E: Save to database (direct REST) ── */
     console.log('[process-report] Saving to database...')
-    const { error: updateError } = await supabase
-      .from('reports')
-      .update({
-        status: 'complete',
-        title: extracted.title,
-        document_type: extracted.document_type,
-        kpis: extracted.kpis,
-        charts: extracted.charts,
-        extracted_data: {
-          key_findings: extracted.key_findings,
-          time_period: extracted.time_period,
-        },
-        executive_summary: narrativeResponse,
+    await supabaseUpdate('reports', reportId, {
+      status: 'complete',
+      title: extracted.title,
+      document_type: extracted.document_type,
+      kpis: extracted.kpis,
+      charts: extracted.charts,
+      extracted_data: {
+        key_findings: extracted.key_findings,
+        time_period: extracted.time_period,
+      },
+      executive_summary: narrativeResponse,
+      updated_at: new Date().toISOString(),
+    })
+
+    console.log(`[process-report] ✅ COMPLETE ${reportId}`)
+    return res.status(200).json({ success: true, reportId, message: 'processing complete' })
+
+  } catch (err) {
+    console.error('[process-report] ❌ Error:', err.message)
+
+    // Try to save error status (best effort)
+    try {
+      await supabaseUpdate('reports', reportId, {
+        status: 'error',
+        error_message: err.message,
+        extracted_data: { error: err.message },
         updated_at: new Date().toISOString(),
       })
-      .eq('id', reportId)
+    } catch (_) {}
 
-    if (updateError) {
-      console.error('[process-report] DB update error:', JSON.stringify(updateError))
-      throw new Error('DB update failed: ' + (updateError.message || JSON.stringify(updateError)))
-    }
-
-    console.log('[process-report] ✅ Complete:', reportId)
-
-    return res.status(200).json({
-      success: true,
-      reportId,
-      message: 'processing complete',
-    })
-  } catch (err) {
-    console.error('[process-report] Error:', err.message, err.stack)
-
-    try {
-      await supabase
-        .from('reports')
-        .update({
-          status: 'error',
-          error_message: err.message,
-          extracted_data: { error: err.message },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', reportId)
-    } catch (_) { /* don't let error-update crash the handler */ }
-
-    return res.status(200).json({
-      success: false,
-      reportId,
-      error: err.message,
-    })
+    return res.status(200).json({ success: false, reportId, error: err.message })
   }
 }
