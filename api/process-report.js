@@ -18,7 +18,15 @@ function getSupabase() {
   const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) throw new Error('Missing Supabase env vars (VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)')
-  _supabase = createClient(url, key, { auth: { persistSession: false } })
+  _supabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'apikey': key,
+      },
+    },
+  })
   return _supabase
 }
 
@@ -288,7 +296,10 @@ export default async function handler(req, res) {
       })
       .eq('id', reportId)
 
-    if (updateError) throw new Error('DB update failed: ' + updateError.message)
+    if (updateError) {
+      console.error('[process-report] DB update error:', JSON.stringify(updateError))
+      throw new Error('DB update failed: ' + (updateError.message || JSON.stringify(updateError)))
+    }
 
     console.log('[process-report] ✅ Complete:', reportId)
 
