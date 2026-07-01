@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { triggerProcessing } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import {
@@ -381,14 +382,35 @@ export default function Report() {
   const handleRetry = async () => {
     if (!report) return
     toast.loading('Restarting processing...')
-    await supabase
-      .from('reports')
-      .update({ status: 'processing' })
-      .eq('id', id)
-    setReport((prev) => ({ ...prev, status: 'processing' }))
-    setPolling(true)
-    toast.dismiss()
-    fetchReport(true)
+
+    // Get the file path from the report (stored at upload time)
+    const filePath = report.file_path
+    if (!filePath) {
+      toast.dismiss()
+      toast.error('Cannot retry — file path not found. Please re-upload the document.')
+      return
+    }
+
+    try {
+      // Update status and re-trigger the actual pipeline
+      await supabase
+        .from('reports')
+        .update({ status: 'processing', error_message: null, updated_at: new Date().toISOString() })
+        .eq('id', id)
+
+      setReport((prev) => ({ ...prev, status: 'processing', error_message: null }))
+      setPolling(true)
+
+      // Re-trigger the pipeline (this calls /api/process-report which calls /api/run-pipeline)
+      await triggerProcessing(id, filePath)
+
+      toast.dismiss()
+      toast.success('Processing restarted!')
+      fetchReport(true)
+    } catch (err) {
+      toast.dismiss()
+      toast.error('Failed to restart: ' + (err.message || 'Unknown error'))
+    }
   }
 
   /* ───── share ───── */
@@ -430,7 +452,8 @@ export default function Report() {
             Processing Failed
           </h2>
           <p className="text-sm text-gray-500 mb-8">
-            {report?.extracted_data?.error ||
+            {report?.error_message ||
+              report?.extracted_data?.error ||
               'Something went wrong while processing your document. Please try again.'}
           </p>
           <button

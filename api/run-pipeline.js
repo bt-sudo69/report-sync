@@ -22,47 +22,33 @@ function getSupabase() {
   return _supabase
 }
 
-/* ───── DeepSeek API helper (via OpenRouter since that's what's configured) ───── */
+/* ───── API helper — uses OpenRouter (which is already configured) ───── */
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const DEEPSEEK_DIRECT_URL = 'https://api.deepseek.com/v1/chat/completions'
 
 function getApiKey() {
   const key = process.env.DEEPSEEK_API_KEY || process.env.OPENROUTER_API_KEY
-  if (!key) throw new Error('No API key configured — set DEEPSEEK_API_KEY or OPENROUTER_API_KEY')
+  if (!key) throw new Error('No API key configured — set OPENROUTER_API_KEY')
   return key
 }
 
-function getEndpoint() {
-  // Use DeepSeek direct API if a DEEPSEEK_API_KEY is set, otherwise route through OpenRouter
-  return process.env.DEEPSEEK_API_KEY ? DEEPSEEK_DIRECT_URL : OPENROUTER_URL
-}
+/* Models: use the ones that are known to work on OpenRouter */
+const MODEL_EXTRACT = 'deepseek/deepseek-chat-v3-0324'  // fast, structured extraction
+const MODEL_NARRATIVE = 'deepseek/deepseek-chat-v3-0324'  // same model for narrative
 
-function getModel(userModel = 'deepseek-chat') {
-  // When routing through OpenRouter, prefix the model name
-  return process.env.DEEPSEEK_API_KEY ? userModel : `deepseek/${userModel}`
-}
-
-async function callDeepSeek(systemPrompt, userPrompt, opts = {}) {
+async function callAI(model, systemPrompt, userPrompt, opts = {}) {
   const { maxTokens = 2000, temperature = 0.1 } = opts
   const apiKey = getApiKey()
-  const endpoint = getEndpoint()
-  const model = getModel()
 
-  const headers = {
-    'Content-Type': 'application/json',
-  }
+  console.log(`[run-pipeline] Calling ${model} (maxTokens=${maxTokens}, temp=${temperature})`)
 
-  // OpenRouter needs the Authorization header + HTTP-Referer
-  if (process.env.DEEPSEEK_API_KEY) {
-    headers['Authorization'] = `Bearer ${apiKey}`
-  } else {
-    headers['Authorization'] = `Bearer ${apiKey}`
-    headers['HTTP-Referer'] = 'https://www.getreportsync.com'
-  }
-
-  const res = await fetch(endpoint, {
+  const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
-    headers,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://www.getreportsync.com',
+      'X-Title': 'GetReportSync',
+    },
     body: JSON.stringify({
       model,
       messages: [
@@ -76,11 +62,19 @@ async function callDeepSeek(systemPrompt, userPrompt, opts = {}) {
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`DeepSeek API error ${res.status}: ${text}`)
+    console.error(`[run-pipeline] AI API error ${res.status}:`, text.slice(0, 500))
+    throw new Error(`AI API error ${res.status}: ${text.slice(0, 200)}`)
   }
 
   const data = await res.json()
-  return data.choices?.[0]?.message?.content || ''
+
+  if (data.error) {
+    throw new Error(`AI API returned error: ${JSON.stringify(data.error).slice(0, 200)}`)
+  }
+
+  const content = data.choices?.[0]?.message?.content || ''
+  console.log(`[run-pipeline] AI response length: ${content.length} chars`)
+  return content
 }
 
 /* ───── Helpers ───── */
@@ -93,6 +87,7 @@ function truncateText(text, maxChars = 60000) {
 async function parseFile(arrayBuffer, fileName) {
   const ext = fileName.split('.').pop()?.toLowerCase()
   const buffer = Buffer.from(arrayBuffer)
+  console.log(`[run-pipeline] Parsing file: ${fileName} (${ext}, ${buffer.length} bytes)`)
 
   // .pdf → pdf-parse
   if (ext === 'pdf') {
@@ -138,7 +133,7 @@ function extractionPrompt(text) {
   document_type: (financial|sales|operations|hr|project|general),
   title: string,
   kpis: [{label, value, unit, change_pct, trend}],
-  charts: [{type, title, x_label, y_label, data: {labels:[], datasets:[{label, data:[]}]}}],
+  charts: [{type, title, x_label, y_label, data: {labels:[], datasets:[{label, data:[]]}}],
   key_findings: string[],
   time_period: string
 }
@@ -162,13 +157,27 @@ Paragraph 4: 2-3 specific actionable recommendations (3-4 sentences).
 Max 220 words total.`
 }
 
+/* ───── Error handler — writes to BOTH error_message AND extracted_data.error ───── */
+async function markError(supabase, reportId, message) {
+  console.error('[run-pipeline] Error:', message)
+  await supabase
+    .from('reports')
+    .update({
+      status: 'error',
+      error_message: message,
+      extracted_data: { error: message },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', reportId)
+}
+
 /* ───── Main pipeline ───── */
 async function runPipeline(reportId, filePath) {
   const supabase = getSupabase()
 
   try {
     /* ── Step A: Download file from Supabase Storage ── */
-    console.log(`[run-pipeline] Downloading ${filePath}`)
+    console.log(`[run-pipeline] Starting for report ${reportId}, file: ${filePath}`)
 
     const { data: signedData, error: signedError } = await supabase.storage
       .from('documents')
@@ -183,30 +192,25 @@ async function runPipeline(reportId, filePath) {
       throw new Error(`File download failed: ${fileRes.status} ${fileRes.statusText}`)
     }
     const arrayBuffer = await fileRes.arrayBuffer()
+    console.log(`[run-pipeline] File downloaded: ${arrayBuffer.byteLength} bytes`)
 
     /* ── Step B: Parse file ── */
     const fileName = filePath.split('/').pop() || 'document'
     const text = await parseFile(arrayBuffer, fileName)
+    console.log(`[run-pipeline] Parsed text: ${text.length} chars`)
 
     if (!text || text.trim().length < 50) {
-      await supabase
-        .from('reports')
-        .update({
-          status: 'error',
-          error_message: 'Document contains too little readable text to analyse.',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', reportId)
+      await markError(supabase, reportId, 'Document contains too little readable text to analyse.')
       return
     }
 
     const promptText = text.length > 40000 ? text.slice(0, 40000) : text
 
-    /* ── Step C: DeepSeek extraction call ── */
-    console.log('[run-pipeline] Running extraction with DeepSeek')
+    /* ── Step C: AI extraction call ── */
+    console.log(`[run-pipeline] Running extraction with ${MODEL_EXTRACT}`)
     const sysExtract = 'You extract structured data from business documents. Return ONLY valid JSON, no markdown, no explanation.'
 
-    const rawExtraction = await callDeepSeek(sysExtract, extractionPrompt(promptText), {
+    const rawExtraction = await callAI(MODEL_EXTRACT, sysExtract, extractionPrompt(promptText), {
       maxTokens: 2000,
       temperature: 0.1,
     })
@@ -227,11 +231,14 @@ async function runPipeline(reportId, filePath) {
     extracted.key_findings = Array.isArray(extracted.key_findings) ? extracted.key_findings : []
     extracted.time_period = extracted.time_period || new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-    /* ── Step D: DeepSeek narrative call ── */
-    console.log('[run-pipeline] Generating narrative with DeepSeek')
+    console.log(`[run-pipeline] Extraction complete: ${extracted.kpis.length} KPIs, ${extracted.key_findings.length} findings`)
+
+    /* ── Step D: AI narrative call ── */
+    console.log(`[run-pipeline] Generating narrative with ${MODEL_NARRATIVE}`)
     const sysNarrative = 'You are a senior business analyst writing executive briefings. Be direct, specific, and grounded in the data provided.'
 
-    const narrativeResponse = await callDeepSeek(
+    const narrativeResponse = await callAI(
+      MODEL_NARRATIVE,
       sysNarrative,
       narrativePrompt(extracted.document_type, extracted.title, extracted.kpis, extracted.key_findings),
       { maxTokens: 600, temperature: 0.3 }
@@ -257,23 +264,13 @@ async function runPipeline(reportId, filePath) {
       .eq('id', reportId)
 
     if (updateError) {
-      console.error('[run-pipeline] DB update failed:', updateError.message)
-      throw updateError
+      throw new Error('DB update failed: ' + updateError.message)
     }
 
-    console.log('[run-pipeline] Report complete:', reportId)
+    console.log('[run-pipeline] ✅ Report complete:', reportId)
   } catch (err) {
-    /* ── Step F: Error handling — mark report as error ── */
-    console.error('[run-pipeline] Error:', err.message, err.stack)
-
-    await supabase
-      .from('reports')
-      .update({
-        status: 'error',
-        error_message: err.message,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', reportId)
+    /* ── Step F: Error handling ── */
+    await markError(supabase, reportId, err.message)
   }
 }
 
@@ -284,6 +281,7 @@ export default async function handler(req, res) {
   const expectedKey = process.env.INTERNAL_SECRET
 
   if (!expectedKey || internalKey !== expectedKey) {
+    console.error('[run-pipeline] Forbidden: invalid or missing x-internal-key')
     return res.status(403).json({ error: 'Forbidden' })
   }
 
@@ -298,9 +296,15 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing reportId or filePath' })
   }
 
+  console.log(`[run-pipeline] Received request: reportId=${reportId}, filePath=${filePath}`)
+
   // Acknowledge immediately, then process
   res.status(202).json({ success: true, reportId, message: 'pipeline accepted' })
 
-  // Run pipeline (async — Vercel will keep the function alive for up to 300s)
-  await runPipeline(reportId, filePath)
+  // Run pipeline (Vercel keeps function alive for up to 300s because of this await)
+  try {
+    await runPipeline(reportId, filePath)
+  } catch (err) {
+    console.error('[run-pipeline] Unhandled error in runPipeline:', err)
+  }
 }

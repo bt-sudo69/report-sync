@@ -55,17 +55,37 @@ export async function uploadDocument(file, userId) {
   const documentType = typeMap[ext] || 'general'
 
   // Create a reports record
-  const { data: report, error: insertError } = await supabase
+  // Try with file_path first (for retry support), fall back without it if column doesn't exist
+  let report, insertError
+  const insertData = {
+    user_id: userId,
+    title: file.name.replace(/\.[^/.]+$/, ''),
+    document_name: file.name,
+    document_type: documentType,
+    file_path: filePath,
+    status: 'processing',
+  }
+
+  const result = await supabase
     .from('reports')
-    .insert({
-      user_id: userId,
-      title: file.name.replace(/\.[^/.]+$/, ''),
-      document_name: file.name,
-      document_type: documentType,
-      status: 'processing',
-    })
+    .insert(insertData)
     .select('id')
     .single()
+
+  report = result.data
+  insertError = result.error
+
+  // If file_path column doesn't exist, retry without it
+  if (insertError && insertError.message?.includes('file_path')) {
+    delete insertData.file_path
+    const retry = await supabase
+      .from('reports')
+      .insert(insertData)
+      .select('id')
+      .single()
+    report = retry.data
+    insertError = retry.error
+  }
 
   if (insertError) {
     // Cleanup the uploaded file
@@ -122,7 +142,7 @@ export function pollReportStatus(reportId, onComplete, onError) {
     if (data.status === 'complete') {
       onComplete?.(data)
     } else if (data.status === 'error') {
-      onError?.(data.extracted_data?.error || 'Processing failed. Please try again.')
+      onError?.(data.error_message || data.extracted_data?.error || 'Processing failed. Please try again.')
     } else {
       setTimeout(poll, 3000)
     }
