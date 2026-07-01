@@ -87,25 +87,25 @@ const SharedReport = () => {
 
     setIsLoading(true)
     try {
-      // Generate a session ID for this viewer (store in localStorage)
-      let sessionId = localStorage.getItem('viewer_session_id')
-      if (!sessionId) {
-        sessionId = uuidv4()
-        localStorage.setItem('viewer_session_id', sessionId)
+      // Generate a viewer ID (store in localStorage to identify this viewer)
+      let viewerId = localStorage.getItem('viewer_id')
+      if (!viewerId) {
+        viewerId = uuidv4()
+        localStorage.setItem('viewer_id', viewerId)
       }
-      viewerSessionIdRef.current = sessionId
+      viewerSessionIdRef.current = viewerId
 
-      // Register this viewer session
+      // Register this viewer session — use viewerId as the row id so we can update it later
       const { error } = await supabase
         .from('viewer_sessions')
         .upsert({
+          id: viewerId,
           report_id: report.id,
           viewer_name: viewerIdentity.name.trim(),
           viewer_role: viewerIdentity.role.trim(),
-          session_id: sessionId,
           last_seen: new Date().toISOString()
         }, {
-          onConflict: ['report_id', 'session_id']
+          onConflict: ['id']
         })
 
       if (error) throw error
@@ -197,8 +197,7 @@ const SharedReport = () => {
         await supabase
           .from('viewer_sessions')
           .update({ last_seen: new Date().toISOString() })
-          .eq('report_id', report.id)
-          .eq('session_id', viewerSessionIdRef.current)
+          .eq('id', viewerSessionIdRef.current)
       } catch (err) {
         console.error('[SharedReport] Error updating last seen:', err)
       }
