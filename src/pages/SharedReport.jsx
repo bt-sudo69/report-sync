@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
+import {
+  ResponsiveContainer,
+  LineChart, Line, BarChart, Bar,
+  AreaChart, Area, PieChart, Pie, Cell,
+  Tooltip, Legend, XAxis, YAxis, CartesianGrid,
+} from 'recharts'
 
 // Inline Supabase client using VITE_ env vars (anon — no auth needed!)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
@@ -272,18 +278,96 @@ const SharedReport = () => {
           </div>
         )}
 
-        {/* Charts */}
+        {/* Charts — render actual Recharts */}
         {charts.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Charts</h2>
-            {charts.map((chart, i) => (
-              <div key={i} className="mb-4 p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm font-medium text-gray-700 mb-2">{chart.title || chart.type}</p>
-                <div className="h-40 bg-gray-200 rounded flex items-center justify-center text-gray-500 text-sm">
-                  {chart.type} chart ({chart.title || 'untitled'})
-                </div>
-              </div>
-            ))}
+            <div className="space-y-6">
+              {charts.map((chart, i) => {
+                const datasets = chart.data?.datasets || []
+                const labels = chart.data?.labels || []
+                const data = labels.map((label, idx) => {
+                  const point = { name: label }
+                  datasets.forEach(ds => { point[ds.label] = ds.data?.[idx] ?? 0 })
+                  return point
+                })
+                const seriesKeys = datasets.map(ds => ds.label)
+                const CHART_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899']
+                const colorMap = {}
+                datasets.forEach((ds, idx) => { colorMap[ds.label] = CHART_COLORS[idx % CHART_COLORS.length] })
+
+                return (
+                  <div key={i} className="border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm font-medium text-gray-700 mb-2">{chart.title || chart.type}</p>
+                    <div style={{ height: 240, width: '100%' }}>
+                      {labels.length > 0 && (
+                        <ResponsiveContainer width="100%" height="100%">
+                          {chart.type === 'line' ? (
+                            <LineChart data={data}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <Tooltip />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                              {seriesKeys.map((key, idx) => (
+                                <Line key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[idx % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />
+                              ))}
+                            </LineChart>
+                          ) : chart.type === 'bar' ? (
+                            <BarChart data={data}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <Tooltip />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                              {seriesKeys.map((key, idx) => (
+                                <Bar key={key} dataKey={key} fill={CHART_COLORS[idx % CHART_COLORS.length]} radius={[2, 2, 0, 0]} />
+                              ))}
+                            </BarChart>
+                          ) : chart.type === 'area' ? (
+                            <AreaChart data={data}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <Tooltip />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                              {seriesKeys.map((key, idx) => (
+                                <Area key={key} type="monotone" dataKey={key} fill={CHART_COLORS[idx % CHART_COLORS.length]} fillOpacity={0.1} stroke={CHART_COLORS[idx % CHART_COLORS.length]} strokeWidth={2} />
+                              ))}
+                            </AreaChart>
+                          ) : chart.type === 'doughnut' || chart.type === 'pie' ? (
+                            <div className="flex h-full items-center justify-center">
+                              <PieChart width={240} height={240}>
+                                <Pie data={data} dataKey={seriesKeys[0] || 'value'} nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={chart.type === 'doughnut' ? 40 : 0} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                                  {data.map((entry, idx) => (
+                                    <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip />
+                              </PieChart>
+                            </div>
+                          ) : (
+                            <BarChart data={data}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <Tooltip />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                              {seriesKeys.map((key, idx) => (
+                                <Bar key={key} dataKey={key} fill={CHART_COLORS[idx % CHART_COLORS.length]} radius={[2, 2, 0, 0]} />
+                              ))}
+                            </BarChart>
+                          )}
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                    {chart.x_label && chart.y_label && (
+                      <p className="text-xs text-gray-400 mt-1 text-center">{chart.y_label} by {chart.x_label}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../../lib/supabaseClient' // Adjust path as needed
+import { supabase } from '../lib/supabase'
 import { v4 as uuidv4 } from 'uuid'
 
 const ShareModal = ({ reportId, isOpen, onClose }) => {
@@ -103,6 +103,9 @@ const ShareModal = ({ reportId, isOpen, onClose }) => {
       }
 
       // Call our API to generate the share link
+      const { data: { session } } = await supabase.auth.getSession()
+      const currentUserId = session?.user?.id || ''
+      
       const response = await fetch('/api/generate-share-link', {
         method: 'POST',
         headers: {
@@ -110,7 +113,7 @@ const ShareModal = ({ reportId, isOpen, onClose }) => {
         },
         body: JSON.stringify({
           reportId,
-          userId: supabase.auth.user()?.id, // Get current user ID from auth
+          userId: currentUserId,
           expiresInDays: expiresIn
         })
       })
